@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DetPer_1.0 | Πανεπιστήμιο Πατρών</title>
+
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231e293b'/><path d='M15 50 L30 50 L45 20 L55 80 L70 50 L85 50' stroke='%23ef4444' stroke-width='8' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+    <link rel="icon" sizes="192x192" href="./icon-192.png">
+    <link rel="icon" sizes="512x512" href="./icon-512.png">
+    <link rel="manifest" href="./manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DetPer 1.0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#ffffff">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { overscroll-behavior-y: contain; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        canvas { touch-action: none; } 
+        .fullscreen-mode {
+            position: fixed !important;
+            top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+            width: 100vw !important; height: 100vh !important;
+            z-index: 9999 !important;
+            margin: 0 !important; border-radius: 0 !important;
+            max-height: none !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen p-2 sm:p-4">
+
+    <div class="max-w-[1600px] mx-auto flex flex-col gap-4">
+
+        <header class="bg-white p-3 sm:px-5 sm:py-3 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center gap-3 sm:gap-5 flex-shrink-0">
+            <img src="https://www.upatras.gr/wp-content/uploads/upatras-2.jpg" alt="Πανεπιστήμιο Πατρών" class="h-12 sm:h-14 object-contain">
+            <div class="hidden md:block w-px h-10 bg-slate-300"></div>
+            <div class="text-center md:text-left flex-1">
+                <h1 class="text-sm sm:text-lg font-bold leading-tight tracking-tight">
+                    <span class="text-slate-500">DetPer 1.0:</span> 
+                    <span class="text-red-700">Determination of Fundamental Period</span>
+                    <span class="text-slate-800 font-semibold text-xs sm:text-[15px]"> for Soil Columns & Buildings</span>
+                </h1>
+                <div class="mt-1.5 flex flex-wrap items-center justify-center md:justify-start gap-x-2 gap-y-1 text-[10px] sm:text-xs text-slate-600">
+                    <span class="font-bold uppercase tracking-wide text-slate-800">ΤΜΗΜΑ ΠΟΛΙΤΙΚΩΝ ΜΗΧΑΝΙΚΩΝ</span>
+                    <span class="hidden sm:inline text-slate-300">|</span>
+                    <span>Π. Πελέκης, Αναπλ. Καθηγητής</span>
+                </div>
+            </div>
+        </header>
+
+        <div id="errorBox" class="hidden bg-red-50 border border-red-200 text-red-800 p-3 rounded-xl text-sm flex-shrink-0"></div>
+
+        <main class="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1">
+            
+            <div class="lg:col-span-1 flex flex-col gap-4">
+                
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        Acquisition (DAQ)
+                    </h2>
+                    
+                    <div class="space-y-3 text-sm">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-600 mb-1 text-[11px] font-bold">f max (Hz)</label>
+                                <input type="number" id="inpFmax" value="25" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 outline-none focus:border-blue-500 transition-colors">
+                            </div>
+                            <div>
+                                <label class="block text-slate-600 mb-1 text-[11px] font-bold">Frame (N)</label>
+                                <select id="inpN" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 outline-none focus:border-blue-500 transition-colors">
+                                    <option value="256">256</option>
+                                    <option value="512" selected>512</option>
+                                    <option value="1024">1024</option>
+                                    <option value="2048">2048</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-blue-50 border border-blue-100 p-2 rounded-lg grid grid-cols-2 gap-y-2 gap-x-1">
+                            <div class="flex flex-col">
+                                <span class="text-blue-800 text-[9px] uppercase font-bold">dt (sec)</span>
+                                <span id="txtDt" class="font-mono text-blue-900 font-bold text-sm">0.020</span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-blue-800 text-[9px] uppercase font-bold">fs (Hz)</span>
+                                <span id="txtFs" class="font-mono text-blue-900 font-bold text-sm">50</span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-blue-800 text-[9px] uppercase font-bold">Tr (sec)</span>
+                                <span id="txtTr" class="font-mono text-blue-900 font-bold text-sm">10.24</span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-blue-800 text-[9px] uppercase font-bold">df (Hz)</span>
+                                <span id="txtDf" class="font-mono text-blue-900 font-bold text-sm">0.098</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                        Επεξεργασία Φάσματος
+                    </h2>
+                    <div class="space-y-3 text-sm">
+                        <label class="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200 mb-2">
+                            <input type="checkbox" id="chkAntiAlias" class="accent-blue-600 w-4 h-4" checked>
+                            <span class="text-slate-700 font-medium text-[11px] uppercase">Anti-Aliasing Filter (LPF)</span>
+                        </label>
+
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="chkSmooth" class="accent-blue-600 w-4 h-4">
+                                <span class="text-slate-700 font-medium text-xs">Smoothing</span>
+                            </label>
+                            <div class="flex items-center gap-1">
+                                <span class="text-slate-500 text-[10px]">Points:</span>
+                                <select id="inpSmoothPts" class="w-14 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-blue-500 transition-colors text-xs text-center font-mono">
+                                    <option value="3">3</option>
+                                    <option value="5" selected>5</option>
+                                    <option value="7">7</option>
+                                    <option value="9">9</option>
+                                    <option value="11">11</option>
+                                    <option value="15">15</option>
+                                    <option value="21">21</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="chkAvg" class="accent-blue-600 w-4 h-4" checked>
+                                <span class="text-slate-700 font-medium text-xs">Averaging</span>
+                            </label>
+                            <div class="flex items-center gap-1">
+                                <span class="text-slate-500 text-[10px]">Frames:</span>
+                                <input type="number" id="inpNumAvg" value="20" min="2" max="100" class="w-14 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-blue-500 transition-colors text-xs text-center font-mono">
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                            <span class="text-slate-700 font-medium text-[11px] uppercase">Windowing</span>
+                            <select id="inpWindow" class="w-24 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-blue-500 transition-colors text-xs">
+                                <option value="rectangular">Rectangular</option>
+                                <option value="hanning" selected>Hanning</option>
+                                <option value="hamming">Hamming</option>
+                                <option value="blackman">Blackman</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-2">
+                    <button id="btnSensor" class="w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors text-sm shadow-md shadow-blue-600/20">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> 
+                        Έναρξη Αισθητήρα
+                    </button>
+                    <button id="btnSim" class="w-full flex justify-center items-center gap-2 bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2.5 rounded-xl font-medium transition-colors border border-purple-200 text-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> 
+                        Προσομοίωση (H/V Demo)
+                    </button>
+                    
+                    <div id="activeControls" class="hidden grid grid-cols-2 gap-2">
+                        <button id="btnPause" class="w-full flex justify-center items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl font-medium transition-colors text-sm shadow-md shadow-amber-500/20">
+                            <svg id="iconPause" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg> 
+                            <span id="txtPause">Παύση</span>
+                        </button>
+                        <button id="btnStop" class="w-full flex justify-center items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-xl font-medium transition-colors text-sm shadow-md shadow-red-500/20">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> 
+                            Διακοπή
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-center relative overflow-hidden hidden lg:flex">
+                    <h2 class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 absolute top-2 left-3">Προσανατολισμός</h2>
+                    <svg viewBox="0 0 200 180" class="w-full h-24 mt-4" style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05));">
+                        <defs>
+                            <marker id="arrowRed" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" /></marker>
+                            <marker id="arrowGreen" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" /></marker>
+                            <marker id="arrowBlue" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" /></marker>
+                        </defs>
+                        <rect x="70" y="30" width="60" height="120" rx="8" fill="#e2e8f0" stroke="#94a3b8" stroke-width="2"/>
+                        <rect x="74" y="36" width="52" height="108" rx="4" fill="#f8fafc"/>
+                        <circle cx="100" cy="135" r="4" fill="#cbd5e1"/>
+                        <line x1="100" y1="90" x2="160" y2="90" stroke="#ef4444" stroke-width="3" marker-end="url(#arrowRed)" />
+                        <text x="165" y="95" fill="#ef4444" font-family="sans-serif" font-weight="bold" font-size="14">X</text>
+                        <line x1="100" y1="90" x2="100" y2="10" stroke="#22c55e" stroke-width="3" marker-end="url(#arrowGreen)" />
+                        <text x="94" y="10" fill="#22c55e" font-family="sans-serif" font-weight="bold" font-size="14">Y</text>
+                        <line x1="100" y1="90" x2="50" y2="140" stroke="#3b82f6" stroke-width="3" marker-end="url(#arrowBlue)" />
+                        <text x="35" y="150" fill="#3b82f6" font-family="sans-serif" font-weight="bold" font-size="14">Z</text>
+                    </svg>
+                </div>
+
+            </div>
+
+            <div class="lg:col-span-3 flex flex-col gap-4">
+                
+                <div class="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[280px] sm:h-[300px] relative">
+                    <div class="flex justify-between items-center mb-2">
+                        <div class="flex flex-col">
+                            <h2 class="text-sm font-bold text-slate-800">Χρονοσειρές Επιτάχυνσης (gal)</h2>
+                            <span id="liveSensorData" class="text-[10px] font-mono text-slate-400 h-3"></span>
+                        </div>
+                        <div class="flex gap-3 text-xs items-start">
+                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkTimeX" checked class="accent-red-500"><span class="text-red-600 font-medium">X</span></label>
+                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkTimeY" checked class="accent-green-500"><span class="text-green-600 font-medium">Y</span></label>
+                            <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkTimeZ" checked class="accent-blue-500"><span class="text-blue-600 font-medium">Z</span></label>
+                        </div>
+                    </div>
+                    <div class="flex-1 w-full bg-slate-900 rounded-lg overflow-hidden relative border border-slate-800">
+                        <div id="overlayTime" class="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10 backdrop-blur-md">
+                            <span class="text-slate-400 text-sm font-medium">Εκκρεμεί έναρξη λήψης...</span>
+                        </div>
+                        <canvas id="timeCanvas" class="w-full h-full block"></canvas>
+                    </div>
+                </div>
+
+                <div id="panelFreq" class="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[380px] sm:h-[450px] relative transition-all duration-200">
+                    <div class="flex flex-col sm:flex-row justify-between items-start mb-3 gap-2 w-full">
+                        <h2 class="text-sm font-bold text-slate-800 flex items-center justify-between w-full sm:w-auto">
+                            <span>Φάσματα & Λόγοι <span class="text-slate-400 text-[10px] sm:text-xs font-normal ml-1">(Drag/Pinch: Pan/Zoom | Tap: Cursor)</span></span>
+                            <button id="btnFullscreenFreqMob" class="sm:hidden p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md border border-slate-300 transition-colors">
+                                <svg class="iconExpand" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                                <svg class="iconCollapse hidden" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+                            </button>
+                        </h2>
+                        <div class="flex flex-wrap gap-2 sm:gap-3 text-xs bg-slate-50 px-2 sm:px-3 py-1.5 rounded-lg border border-slate-200 items-center w-full sm:w-auto justify-between sm:justify-start">
+                            <div class="flex flex-wrap gap-2 items-center">
+                                <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkFreqX" class="accent-red-500"><span class="text-red-600 font-medium">Sx</span></label>
+                                <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkFreqY" class="accent-green-500"><span class="text-green-600 font-medium">Sy</span></label>
+                                <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkFreqZ" class="accent-blue-500"><span class="text-blue-600 font-medium">Sz</span></label>
+                                <div class="w-px h-4 bg-slate-300 mx-1 hidden sm:block"></div>
+                                <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkRatX" class="accent-orange-500"><span class="text-orange-600 font-medium">Sx/Sz</span></label>
+                                <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="chkRatY" class="accent-teal-500"><span class="text-teal-600 font-medium">Sy/Sz</span></label>
+                                <label class="flex items-center gap-1 cursor-pointer" title="Μέσος Λόγος H/V"><input type="checkbox" id="chkRatHV" checked class="accent-purple-500"><span class="text-purple-700 font-bold">H/V</span></label>
+                                <label class="flex items-center gap-1 cursor-pointer" title="±1 Standard Deviation για το H/V"><input type="checkbox" id="chkSigma" class="accent-red-500"><span class="text-red-500 font-bold border-b border-dashed border-red-500">±1σ</span></label>
+                                <div class="w-px h-4 bg-slate-300 mx-1 hidden sm:block"></div>
+                                <label class="flex items-center gap-1 cursor-pointer bg-slate-200 px-2 py-0.5 rounded border border-slate-300"><input type="checkbox" id="chkLogY" class="accent-slate-700"><span class="text-slate-800 font-bold">Log-Y</span></label>
+                            </div>
+                            <button id="btnFullscreenFreqDesk" class="hidden sm:block p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md border border-slate-300 transition-colors ml-auto" title="Πλήρης Οθόνη">
+                                <svg class="iconExpand" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                                <svg class="iconCollapse hidden" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex-1 w-full bg-slate-900 rounded-lg overflow-hidden relative border border-slate-800">
+                        <div id="overlayFreq" class="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10 backdrop-blur-md">
+                            <span class="text-slate-400 text-sm font-medium">Αναμονή για γέμισμα buffer (Frame Size)...</span>
+                        </div>
+                        <canvas id="freqCanvas" class="w-full h-full block cursor-crosshair"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col relative h-[300px]">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+                        <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+                            Πίνακας Φασματικών Δεδομένων
+                        </h2>
+                        <div class="flex gap-2 w-full sm:w-auto">
+                            <button id="btnCopy" class="flex-1 sm:flex-none flex justify-center items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-300" title="Αντιγραφή στο πρόχειρο">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                <span>Αντιγραφή</span>
+                            </button>
+                            <button id="btnDownload" class="flex-1 sm:flex-none flex justify-center items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-800 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-blue-200" title="Αποθήκευση στα Downloads">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                <span>Αποθήκευση (.txt)</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-auto custom-scroll border border-slate-200 rounded-lg relative">
+                        <table class="w-full text-left text-xs text-slate-600 whitespace-nowrap">
+                            <thead class="bg-slate-50 sticky top-0 border-b border-slate-200 z-10 shadow-sm">
+                                <tr>
+                                    <th class="px-3 py-2 font-semibold">Συχνότητα (Hz)</th>
+                                    <th class="px-3 py-2 font-semibold">Sx (gal)</th>
+                                    <th class="px-3 py-2 font-semibold text-slate-400">±1σ Sx</th>
+                                    <th class="px-3 py-2 font-semibold">Sy (gal)</th>
+                                    <th class="px-3 py-2 font-semibold text-slate-400">±1σ Sy</th>
+                                    <th class="px-3 py-2 font-semibold">Sz (gal)</th>
+                                    <th class="px-3 py-2 font-semibold text-slate-400">±1σ Sz</th>
+                                    <th class="px-3 py-2 font-semibold text-purple-700">Λόγος H/V</th>
+                                    <th class="px-3 py-2 font-semibold text-red-500">±1σ H/V</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dataTableBody" class="divide-y divide-slate-100">
+                                <tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Δεν υπάρχουν δεδομένα ακόμη...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- UI Elements ---
+        const btnSensor = document.getElementById('btnSensor');
+        const btnSim = document.getElementById('btnSim');
+        const activeControls = document.getElementById('activeControls');
+        const btnPause = document.getElementById('btnPause');
+        const iconPause = document.getElementById('iconPause');
+        const txtPause = document.getElementById('txtPause');
+        const btnStop = document.getElementById('btnStop');
+        const btnCopy = document.getElementById('btnCopy');
+        const btnDownload = document.getElementById('btnDownload');
+        const errorBox = document.getElementById('errorBox');
+        
+        const inpFmax = document.getElementById('inpFmax');
+        const inpN = document.getElementById('inpN');
+        const txtDt = document.getElementById('txtDt');
+        const txtFs = document.getElementById('txtFs');
+        const txtTr = document.getElementById('txtTr');
+        const txtDf = document.getElementById('txtDf');
+
+        const chkSmooth = document.getElementById('chkSmooth');
+        const inpSmoothPts = document.getElementById('inpSmoothPts');
+        const chkAvg = document.getElementById('chkAvg');
+        const chkAntiAlias = document.getElementById('chkAntiAlias');
+        const inpNumAvg = document.getElementById('inpNumAvg');
+        const inpWindow = document.getElementById('inpWindow');
+
+        const overlayTime = document.getElementById('overlayTime');
+        const overlayFreq = document.getElementById('overlayFreq');
+        const dataTableBody = document.getElementById('dataTableBody');
+
+        const chkTimeX = document.getElementById('chkTimeX');
+        const chkTimeY = document.getElementById('chkTimeY');
+        const chkTimeZ = document.getElementById('chkTimeZ');
+        
+        const chkFreqX = document.getElementById('chkFreqX');
+        const chkFreqY = document.getElementById('chkFreqY');
+        const chkFreqZ = document.getElementById('chkFreqZ');
+        const chkRatX = document.getElementById('chkRatX');
+        const chkRatY = document.getElementById('chkRatY');
+        const chkRatHV = document.getElementById('chkRatHV');
+        const chkSigma = document.getElementById('chkSigma');
+        const chkLogY = document.getElementById('chkLogY');
+
+        const timeCanvas = document.getElementById('timeCanvas');
+        const freqCanvas = document.getElementById('freqCanvas');
+        const ctxTime = timeCanvas.getContext('2d');
+        const ctxFreq = freqCanvas.getContext('2d');
+
+        // Fullscreen elements
+        const panelFreq = document.getElementById('panelFreq');
+        const btnFullscreenFreqMob = document.getElementById('btnFullscreenFreqMob');
+        const btnFullscreenFreqDesk = document.getElementById('btnFullscreenFreqDesk');
+        const expandIcons = document.querySelectorAll('.iconExpand');
+        const collapseIcons = document.querySelectorAll('.iconCollapse');
+        let isFullscreen = false;
+
+        // --- DAQ State ---
+        let isRunning = false;
+        let isSimulating = false;
+        let isPaused = false;
+        let isWaiting = false;
+        let isWaitingForPickup = false;
+        let pickupBaseline = { x: 0, y: 0, z: 0 };
+        let daqIntervalId;
+        let animIdTime;
+        let countdownInterval;
+        
+        let fmax = parseFloat(inpFmax.value) || 25;
+        let fs = 2 * fmax;
+        let dt = 1 / fs;
+        let N = parseInt(inpN.value);
+        let df = fs / N;
+
+        let currentWindow = { array: [], correction: 1.0 };
+
+        // Hardware sensor latest data
+        let hwData = { x: 0, y: 0, z: 0 };
+        let simTime = 0;
+        let totalFramesCount = 0;
+
+        // Zoom state
+        let fMin = 0;
+        let fMax = fmax;
+
+        // LPF & HPF (DC Blocker) State
+        let lpfAlpha = 1;
+        let lpfState = { x: 0, y: 0, z: 0 };
+        let hpfAlpha = 1;
+        let hpfState = { x: 0, y: 0, z: 0 };
+        let rawPrev = { x: 0, y: 0, z: 0 };
+        let firstSample = true;
+
+        // Buffers
+        let timeBuffer = []; 
+        let maxTimeDisplay = fs * 5; 
+        let fftBufferX = []; let fftBufferY = []; let fftBufferZ = [];
+        let specHistoryX = []; let specHistoryY = []; let specHistoryZ = [];
+        let baseSpecX = [], baseSpecY = [], baseSpecZ = []; 
+        let specX = [], specY = [], specZ = []; 
+        let globalPlotData = []; 
+        let cursorBin = null;
+
+        // --- WAKE LOCK API ---
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {
+                console.log('Wake Lock Error:', err);
+            }
+        }
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release().then(() => { wakeLock = null; });
+            }
+        }
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible' && isRunning && !isPaused && !isWaiting) {
+                requestWakeLock();
+            }
+        });
+
+        // --- UI Utils ---
+        function showToast(msg, isError=false) {
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-xl text-sm font-bold text-white transition-all duration-300 z-[10000] transform translate-y-0 opacity-100 ${isError ? 'bg-red-500' : 'bg-emerald-500'}`;
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => { 
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300); 
+            }, 3000);
+        }
+
+        function toggleFullscreen() {
+            isFullscreen = !isFullscreen;
+            if (isFullscreen) {
+                panelFreq.classList.add('fullscreen-mode');
+                document.body.style.overflow = 'hidden';
+                expandIcons.forEach(i => i.classList.add('hidden'));
+                collapseIcons.forEach(i => i.classList.remove('hidden'));
+            } else {
+                panelFreq.classList.remove('fullscreen-mode');
+                document.body.style.overflow = '';
+                expandIcons.forEach(i => i.classList.remove('hidden'));
+                collapseIcons.forEach(i => i.classList.add('hidden'));
+            }
+            setTimeout(resizeCanvases, 50);
+        }
+        btnFullscreenFreqMob.addEventListener('click', toggleFullscreen);
+        btnFullscreenFreqDesk.addEventListener('click', toggleFullscreen);
+
+        const dismissCompletedOverlay = () => {
+            if (isWaitingForPickup) {
+                isWaitingForPickup = false;
+                overlayTime.classList.add('hidden');
+                overlayFreq.classList.add('hidden');
+            }
+        };
+        overlayTime.addEventListener('click', dismissCompletedOverlay);
+        overlayFreq.addEventListener('click', dismissCompletedOverlay);
+        overlayTime.addEventListener('touchstart', dismissCompletedOverlay);
+        overlayFreq.addEventListener('touchstart', dismissCompletedOverlay);
+
+        function calculateWindowCoeffs(type, n) {
+            let w = new Float32Array(n);
+            let sum = 0;
+            for (let i = 0; i < n; i++) {
+                if (type === 'hanning') {
+                    w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)));
+                } else if (type === 'hamming') {
+                    w[i] = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (n - 1));
+                } else if (type === 'blackman') {
+                    w[i] = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (n - 1));
+                } else { 
+                    w[i] = 1.0;
+                }
+                sum += w[i];
+            }
+            return { array: w, correction: n / sum };
+        }
+
+        function updateDaqParams() {
+            let oldFmax = fmax;
+            fmax = parseFloat(inpFmax.value) || 25;
+            if(fmax < 1) fmax = 1;
+            
+            fs = 2 * fmax;
+            dt = 1 / fs;
+            N = parseInt(inpN.value);
+            
+            txtDt.textContent = dt.toFixed(4);
+            txtFs.textContent = fs.toFixed(0);
+            txtTr.textContent = (N * dt).toFixed(2);
+            df = fs / N; 
+            txtDf.textContent = df.toFixed(3);
+
+            maxTimeDisplay = fs * 5;
+
+            if (fmax !== oldFmax) {
+                fMin = 0; fMax = fmax;
+            }
+
+            // Υπολογισμός φίλτρων (LPF & HPF)
+            lpfAlpha = dt / ((1 / (2 * Math.PI * fmax)) + dt);
+            
+            let hpfCutoff = 0.1; // 0.1 Hz για αφαίρεση DC & Βαρύτητας
+            let rcHPF = 1 / (2 * Math.PI * hpfCutoff);
+            hpfAlpha = rcHPF / (rcHPF + dt);
+
+            currentWindow = calculateWindowCoeffs(inpWindow.value, N);
+        }
+        inpFmax.addEventListener('change', updateDaqParams);
+        inpN.addEventListener('change', updateDaqParams);
+        inpWindow.addEventListener('change', updateDaqParams);
+        updateDaqParams();
+
+        function resizeCanvases() {
+            [timeCanvas, freqCanvas].forEach(c => {
+                c.width = c.parentElement.clientWidth;
+                c.height = c.parentElement.clientHeight;
+            });
+            drawTime();
+            drawFreq();
+        }
+        window.addEventListener('resize', resizeCanvases);
+        resizeCanvases();
+
+        // --- MATH FUNCTIONS ---
+        function computeFFTMagnitude(realArray) {
+            let n = realArray.length; 
+            let re = [...realArray];
+            let im = new Array(n).fill(0);
+
+            for (let i = 0; i < n; i++) {
+                let rev = 0; let k = i; let bits = Math.log2(n);
+                for (let j = 0; j < bits; j++) { rev = (rev << 1) | (k & 1); k >>= 1; }
+                if (i < rev) { let tr = re[i]; re[i] = re[rev]; re[rev] = tr; }
+            }
+
+            for (let step = 2; step <= n; step *= 2) {
+                let angle = -2 * Math.PI / step;
+                let w_re_step = Math.cos(angle);
+                let w_im_step = Math.sin(angle);
+                for (let i = 0; i < n; i += step) {
+                    let w_re = 1, w_im = 0;
+                    for (let j = 0; j < step / 2; j++) {
+                        let t_re = w_re * re[i + j + step / 2] - w_im * im[i + j + step / 2];
+                        let t_im = w_re * im[i + j + step / 2] + w_im * re[i + j + step / 2];
+                        re[i + j + step / 2] = re[i + j] - t_re;
+                        im[i + j + step / 2] = im[i + j] - t_im;
+                        re[i + j] += t_re; im[i + j] += t_im;
+                        let next_w_re = w_re * w_re_step - w_im * w_im_step;
+                        w_im = w_re * w_im_step + w_im * w_re_step;
+                        w_re = next_w_re;
+                    }
+                }
+            }
+
+            let mag = [];
+            for (let i = 0; i < n / 2; i++) mag.push(Math.sqrt(re[i]*re[i] + im[i]*im[i]) / (n/2));
+            return mag;
+        }
+
+        function smoothArray(arr, windowSize = 5) {
+            let smoothed = [];
+            let half = Math.floor(windowSize / 2);
+            for (let i = 0; i < arr.length; i++) {
+                let sum = 0, count = 0;
+                for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
+                    sum += arr[j]; count++;
+                }
+                smoothed.push(sum / count);
+            }
+            return smoothed;
+        }
+
+        function getAverageSpectrum(historyArray) {
+            if (historyArray.length === 0) return [];
+            let len = historyArray[0].length;
+            let avg = new Array(len).fill(0);
+            for (let i = 0; i < historyArray.length; i++) {
+                for (let j = 0; j < len; j++) avg[j] += historyArray[i][j];
+            }
+            for (let j = 0; j < len; j++) avg[j] /= historyArray.length;
+            return avg;
+        }
+
+        function applySmoothingAndUpdate() {
+            if (baseSpecX.length === 0) return;
+            
+            if (chkSmooth.checked) {
+                let pts = parseInt(inpSmoothPts.value) || 5;
+                specX = smoothArray(baseSpecX, pts); 
+                specY = smoothArray(baseSpecY, pts);
+                specZ = smoothArray(baseSpecZ, pts);
+            } else {
+                specX = [...baseSpecX]; specY = [...baseSpecY]; specZ = [...baseSpecZ];
+            }
+            
+            updatePlotData();
+            drawFreq();
+            populateTable();
+        }
+
+        // --- DAQ LOGIC ---
+        function daqTick() {
+            if (!isRunning || isPaused || isWaiting) return;
+
+            let x = 0, y = 0, z = 0;
+
+            if (isSimulating) {
+                simTime += dt;
+                let nX = (Math.random() - 0.5) * 0.05;
+                let nY = (Math.random() - 0.5) * 0.05;
+                let nZ = (Math.random() - 0.5) * 0.05;
+                let buildUp = Math.min(totalFramesCount / 60, 1.0);
+                let amp = 0.016 * buildUp;
+                let peakX = Math.sin(2 * Math.PI * 4.8 * simTime) * (amp * 0.3) + Math.sin(2 * Math.PI * 4.9 * simTime) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.0 * simTime) * amp + Math.sin(2 * Math.PI * 5.1 * simTime) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.2 * simTime) * (amp * 0.3);
+                let peakY = Math.cos(2 * Math.PI * 4.8 * simTime + 0.3) * (amp * 0.3) + Math.cos(2 * Math.PI * 4.9 * simTime + 1.2) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.0 * simTime + 0.5) * amp + Math.cos(2 * Math.PI * 5.1 * simTime + 2.1) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.2 * simTime + 1.1) * (amp * 0.3);
+                let driftZ = Math.sin(2 * Math.PI * 0.8 * simTime) * 0.002;
+                x = nX + peakX; y = nY + peakY; z = nZ + driftZ;
+            } else {
+                let rawX = hwData.x * 100; 
+                let rawY = hwData.y * 100; 
+                let rawZ = hwData.z * 100;
+
+                if (firstSample) {
+                    rawPrev = { x: rawX, y: rawY, z: rawZ };
+                    hpfState = { x: 0, y: 0, z: 0 };
+                    firstSample = false;
+                }
+
+                // HPF - Αφαίρεση Βαρύτητας & DC Offset
+                hpfState.x = hpfAlpha * (hpfState.x + rawX - rawPrev.x);
+                hpfState.y = hpfAlpha * (hpfState.y + rawY - rawPrev.y);
+                hpfState.z = hpfAlpha * (hpfState.z + rawZ - rawPrev.z);
+                
+                rawPrev = { x: rawX, y: rawY, z: rawZ };
+
+                x = hpfState.x;
+                y = hpfState.y;
+                z = hpfState.z;
+                
+                const liveReadout = document.getElementById('liveSensorData');
+                if (liveReadout) {
+                    liveReadout.textContent = `[RAW m/s²: X:${hwData.x.toFixed(3)} Y:${hwData.y.toFixed(3)} Z:${hwData.z.toFixed(3)}]`;
+                }
+            }
+
+            // Anti-Aliasing LPF
+            if (chkAntiAlias.checked) {
+                lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
+                lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
+                lpfState.z = lpfAlpha * z + (1 - lpfAlpha) * lpfState.z;
+                x = lpfState.x; y = lpfState.y; z = lpfState.z;
+            } else {
+                lpfState = {x, y, z}; 
+            }
+
+            timeBuffer.push({x, y, z});
+            if (timeBuffer.length > maxTimeDisplay) timeBuffer.shift();
+
+            fftBufferX.push(x);
+            fftBufferY.push(y);
+            fftBufferZ.push(z);
+
+            if (fftBufferX.length >= N) {
+                overlayFreq.classList.add('hidden');
+                totalFramesCount++; 
+                
+                let wx = fftBufferX.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
+                let wy = fftBufferY.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
+                let wz = fftBufferZ.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
+
+                let rawSpecX = computeFFTMagnitude(wx);
+                let rawSpecY = computeFFTMagnitude(wy);
+                let rawSpecZ = computeFFTMagnitude(wz);
+
+                let numAvg = parseInt(inpNumAvg.value) || 20;
+
+                if (chkAvg.checked) {
+                    specHistoryX.push(rawSpecX);
+                    specHistoryY.push(rawSpecY);
+                    specHistoryZ.push(rawSpecZ);
+                    
+                    while (specHistoryX.length > numAvg) {
+                        specHistoryX.shift();
+                        specHistoryY.shift();
+                        specHistoryZ.shift();
+                    }
+                    
+                    baseSpecX = getAverageSpectrum(specHistoryX);
+                    baseSpecY = getAverageSpectrum(specHistoryY);
+                    baseSpecZ = getAverageSpectrum(specHistoryZ);
+                } else {
+                    baseSpecX = rawSpecX;
+                    baseSpecY = rawSpecY;
+                    baseSpecZ = rawSpecZ;
+                }
+
+                applySmoothingAndUpdate();
+
+                const overlap = N / 2;
+                fftBufferX.splice(0, overlap);
+                fftBufferY.splice(0, overlap);
+                fftBufferZ.splice(0, overlap);
+
+                // --- AUTO PAUSE LOGIC ---
+                if (chkAvg.checked && totalFramesCount === numAvg) {
+                    isPaused = true;
+                    updatePauseUI();
+                    releaseWakeLock();
+                    
+                    isWaitingForPickup = true;
+                    pickupBaseline = { x: hwData.x, y: hwData.y, z: hwData.z };
+                    
+                    overlayTime.classList.remove('hidden');
+                    overlayFreq.classList.remove('hidden');
+                    
+                    overlayTime.innerHTML = '<div class="flex flex-col items-center justify-center h-full cursor-pointer"><span class="text-emerald-400 text-lg font-bold tracking-wider">ΟΛΟΚΛΗΡΩΘΗΚΕ</span><span class="text-slate-300 text-xs mt-1 text-center">Σηκώστε τη συσκευή<br>ή αγγίξτε</span></div>';
+                    overlayFreq.innerHTML = '<div class="flex flex-col items-center justify-center h-full cursor-pointer"><span class="text-emerald-400 text-3xl font-bold tracking-wider text-center">ΟΛΟΚΛΗΡΩΘΗΚΕ<br><span class="text-sm font-normal text-slate-300 mt-2 block">Σηκώστε τη συσκευή για προβολή<br>(ή αγγίξτε)</span></span></div>';
+                    
+                    showToast('Ο στόχος Averaging ολοκληρώθηκε!');
+                }
+            }
+        }
+
+        function updatePlotData() {
+            globalPlotData = [];
+            if (specX.length === 0) return;
+            
+            const numBins = specX.length; 
+            let doWindows = chkAvg.checked && specHistoryX.length > 0;
+            
+            let ratXWindows = []; let ratYWindows = []; let hvWindows = [];
+            let sxWindows = []; let syWindows = []; let szWindows = [];
+            
+            if (doWindows) {
+                for (let w = 0; w < specHistoryX.length; w++) {
+                    let rx = new Float32Array(numBins);
+                    let ry = new Float32Array(numBins);
+                    let rhv = new Float32Array(numBins);
+                    
+                    let sx_w = chkSmooth.checked ? smoothArray(specHistoryX[w], parseInt(inpSmoothPts.value)||5) : specHistoryX[w];
+                    let sy_w = chkSmooth.checked ? smoothArray(specHistoryY[w], parseInt(inpSmoothPts.value)||5) : specHistoryY[w];
+                    let sz_w = chkSmooth.checked ? smoothArray(specHistoryZ[w], parseInt(inpSmoothPts.value)||5) : specHistoryZ[w];
+                    
+                    sxWindows.push(sx_w); syWindows.push(sy_w); szWindows.push(sz_w);
+
+                    for (let i = 0; i < numBins; i++) {
+                        let sz_safe_w = Math.max(sz_w[i], 1e-6);
+                        rx[i] = Math.min(sx_w[i] / sz_safe_w, 100);
+                        ry[i] = Math.min(sy_w[i] / sz_safe_w, 100);
+                        rhv[i] = Math.min(Math.sqrt(sx_w[i] * sy_w[i]) / sz_safe_w, 100);
+                    }
+                    ratXWindows.push(rx); ratYWindows.push(ry); hvWindows.push(rhv);
+                }
+            }
+
+            for (let i = 0; i < numBins; i++) {
+                const sz_safe = Math.max(specZ[i], 1e-6); 
+                
+                let meanRatX = Math.min(specX[i] / sz_safe, 100);
+                let meanRatY = Math.min(specY[i] / sz_safe, 100);
+                let meanHV = Math.min(Math.sqrt(specX[i] * specY[i]) / sz_safe, 100);
+                let sigmaHV = 0, sigmaSx = 0, sigmaSy = 0, sigmaSz = 0;
+
+                if (doWindows) {
+                    let sumX = 0, sumY = 0, sumHV = 0;
+                    let wCount = ratXWindows.length;
+                    
+                    for(let w = 0; w < wCount; w++) {
+                        sumX += ratXWindows[w][i]; sumY += ratYWindows[w][i]; sumHV += hvWindows[w][i];
+                    }
+                    
+                    meanRatX = sumX / wCount; meanRatY = sumY / wCount; meanHV = sumHV / wCount;
+
+                    if (wCount > 1) {
+                        let sqSumHV = 0, sqSumSx = 0, sqSumSy = 0, sqSumSz = 0;
+                        for(let w = 0; w < wCount; w++) {
+                            sqSumHV += Math.pow(hvWindows[w][i] - meanHV, 2);
+                            sqSumSx += Math.pow(sxWindows[w][i] - specX[i], 2);
+                            sqSumSy += Math.pow(syWindows[w][i] - specY[i], 2);
+                            sqSumSz += Math.pow(szWindows[w][i] - specZ[i], 2);
+                        }
+                        sigmaHV = Math.sqrt(sqSumHV / (wCount - 1));
+                        sigmaSx = Math.sqrt(sqSumSx / (wCount - 1));
+                        sigmaSy = Math.sqrt(sqSumSy / (wCount - 1));
+                        sigmaSz = Math.sqrt(sqSumSz / (wCount - 1));
+                    }
+                }
+
+                if (i === 0) {
+                    meanRatX = 0; meanRatY = 0; meanHV = 0; sigmaHV = 0;
+                }
+
+                globalPlotData.push({
+                    sx: specX[i], sy: specY[i], sz: specZ[i],
+                    sigmaSx: sigmaSx, sigmaSy: sigmaSy, sigmaSz: sigmaSz,
+                    ratX: meanRatX, ratY: meanRatY, ratHV: meanHV, sigmaHV: sigmaHV    
+                });
+            }
+        }
+
+        // --- DATA EXPORT & TABLE ---
+        function populateTable() {
+            let html = '';
+            for(let i=0; i<globalPlotData.length; i++) {
+                const freq = i * df;
+                if (freq > fmax) break;
+                const p = globalPlotData[i];
+                html += `
+                    <tr class="hover:bg-slate-100 transition-colors">
+                        <td class="px-3 py-1.5 font-mono text-slate-700">${freq.toFixed(3)}</td>
+                        <td class="px-3 py-1.5">${p.sx.toFixed(5)}</td>
+                        <td class="px-3 py-1.5 text-slate-400">±${p.sigmaSx.toFixed(5)}</td>
+                        <td class="px-3 py-1.5">${p.sy.toFixed(5)}</td>
+                        <td class="px-3 py-1.5 text-slate-400">±${p.sigmaSy.toFixed(5)}</td>
+                        <td class="px-3 py-1.5">${p.sz.toFixed(5)}</td>
+                        <td class="px-3 py-1.5 text-slate-400">±${p.sigmaSz.toFixed(5)}</td>
+                        <td class="px-3 py-1.5 font-bold text-purple-700">${p.ratHV.toFixed(3)}</td>
+                        <td class="px-3 py-1.5 text-red-500">±${p.sigmaHV.toFixed(3)}</td>
+                    </tr>`;
+            }
+            dataTableBody.innerHTML = html;
+        }
+
+        function getExportText() {
+            if (globalPlotData.length === 0) return null;
+            let text = "";
+            text += "=========================================================\n";
+            text += "DetPer 1.0 - Acquisition & DSP Parameters\n";
+            text += "=========================================================\n";
+            text += `Date/Time:         ${new Date().toLocaleString()}\n`;
+            text += `f max (Hz):        ${fmax}\n`;
+            text += `Frame Size (N):    ${N}\n`;
+            text += `dt (sec):          ${dt.toFixed(4)}\n`;
+            text += `fs (Hz):           ${fs.toFixed(0)}\n`;
+            text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`;
+            text += `df (Hz):           ${df.toFixed(3)}\n`;
+            text += `Anti-Aliasing LPF: ${chkAntiAlias.checked ? 'ON' : 'OFF'}\n`;
+            text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`;
+            text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`;
+            text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`;
+            text += `Total Frames (Ntot):  ${totalFramesCount}\n`;
+            text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
+            text += "=========================================================\n\n";
+            text += "Frequency(Hz)\tSx(gal)\tSigma_Sx\tSy(gal)\tSigma_Sy\tSz(gal)\tSigma_Sz\tHV_Ratio\tHV_Sigma\n";
+            
+            for(let i=0; i<globalPlotData.length; i++) {
+                const freq = i * df;
+                if (freq > fmax) break;
+                const p = globalPlotData[i];
+                text += `${freq.toFixed(3)}\t${p.sx.toFixed(5)}\t${p.sigmaSx.toFixed(5)}\t${p.sy.toFixed(5)}\t${p.sigmaSy.toFixed(5)}\t${p.sz.toFixed(5)}\t${p.sigmaSz.toFixed(5)}\t${p.ratHV.toFixed(4)}\t${p.sigmaHV.toFixed(4)}\n`;
+            }
+            return text;
+        }
+
+        btnCopy.addEventListener('click', () => {
+            const tsv = getExportText();
+            if (!tsv) { showToast('Δεν υπάρχουν δεδομένα!', true); return; }
+            let textArea = document.createElement("textarea");
+            textArea.value = tsv;
+            textArea.style.position = "fixed"; textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.focus(); textArea.select();
+            try { document.execCommand('copy'); showToast('Τα δεδομένα αντιγράφηκαν!'); } 
+            catch (err) { showToast('Αποτυχία αντιγραφής', true); }
+            document.body.removeChild(textArea);
+        });
+
+        btnDownload.addEventListener('click', () => {
+            const tsv = getExportText();
+            if (!tsv) { showToast('Δεν υπάρχουν δεδομένα για αποθήκευση!', true); return; }
+            const blob = new Blob([tsv], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url;
+            const now = new Date();
+            const ts = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}_${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}`;
+            a.download = `HV_Spectrum_${ts}.txt`;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+            showToast('Το αρχείο αποθηκεύτηκε στα Downloads!');
+        });
+
+        // --- HARDWARE SENSOR ---
+        function handleMotion(event) {
+            const acc = event.acceleration || event.accelerationIncludingGravity;
+            if (acc) {
+                hwData.x = acc.x || 0;
+                hwData.y = acc.y || 0;
+                hwData.z = acc.z || 0;
+
+                if (isWaitingForPickup) {
+                    let dx = hwData.x - pickupBaseline.x;
+                    let dy = hwData.y - pickupBaseline.y;
+                    let dz = hwData.z - pickupBaseline.z;
+                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) {
+                        dismissCompletedOverlay();
+                    }
+                }
+            }
+        }
+
+        // --- DRAWING FUNCTIONS ---
+        function drawGrid(ctx, w, h, xDivs = 10, yDivs = 4) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(134, 239, 172, 0.4)'; 
+            ctx.lineWidth = 0.5; 
+            ctx.setLineDash([4, 4]); 
+            ctx.beginPath();
+            for (let i = 1; i < xDivs; i++) {
+                let x = (w / xDivs) * i; ctx.moveTo(x, 0); ctx.lineTo(x, h);
+            }
+            for (let i = 1; i < yDivs; i++) {
+                let y = (h / yDivs) * i; ctx.moveTo(0, y); ctx.lineTo(w, y);
+            }
+            ctx.stroke(); ctx.restore();
+        }
+
+        function drawTime() {
+            if (!isRunning) return;
+            const w = timeCanvas.width; const h = timeCanvas.height; const midY = h / 2;
+            ctxTime.clearRect(0, 0, w, h);
+            drawGrid(ctxTime, w, h, 10, 4);
+
+            ctxTime.strokeStyle = '#334155'; ctxTime.lineWidth = 1;
+            ctxTime.beginPath(); ctxTime.moveTo(0, midY); ctxTime.lineTo(w, midY); ctxTime.stroke();
+
+            if (timeBuffer.length === 0) {
+                animIdTime = requestAnimationFrame(drawTime); return;
+            }
+
+            let maxVal = 0.01; 
+            timeBuffer.forEach(p => {
+                if(chkTimeX.checked) maxVal = Math.max(maxVal, Math.abs(p.x));
+                if(chkTimeY.checked) maxVal = Math.max(maxVal, Math.abs(p.y));
+                if(chkTimeZ.checked) maxVal = Math.max(maxVal, Math.abs(p.z));
+            });
+            maxVal *= 1.2; 
+            
+            const scaleY = (h / 2.2) / maxVal;
+            const stepX = w / maxTimeDisplay;
+
+            const drawChannel = (key, color) => {
+                ctxTime.beginPath(); ctxTime.strokeStyle = color; ctxTime.lineWidth = 1.5;
+                timeBuffer.forEach((p, i) => {
+                    const px = i * stepX; const py = midY - (p[key] * scaleY);
+                    if (i === 0) ctxTime.moveTo(px, py); else ctxTime.lineTo(px, py);
+                });
+                ctxTime.stroke();
+            };
+
+            if (chkTimeX.checked) drawChannel('x', '#ef4444');
+            if (chkTimeY.checked) drawChannel('y', '#22c55e');
+            if (chkTimeZ.checked) drawChannel('z', '#3b82f6');
+
+            ctxTime.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxTime.font = '10px sans-serif'; ctxTime.textAlign = 'left';
+            ctxTime.fillText(`±${maxVal.toFixed(3)} gal`, 5, 12); 
+            ctxTime.fillText('0 s', 10, h - 8); ctxTime.textAlign = 'right';
+            let currentTimeSpan = (timeBuffer.length * dt).toFixed(1);
+            ctxTime.fillText(`${currentTimeSpan} s`, w - 10, h - 8); 
+
+            animIdTime = requestAnimationFrame(drawTime);
+        }
+
+        function drawFreq() {
+            if (!isRunning && globalPlotData.length === 0) return;
+            const w = freqCanvas.width; const h = freqCanvas.height; const marginB = 20; 
+            ctxFreq.clearRect(0, 0, w, h);
+            if(globalPlotData.length === 0) return;
+
+            drawGrid(ctxFreq, w, h - marginB, 10, 4);
+            
+            let hasRaw = chkFreqX.checked || chkFreqY.checked || chkFreqZ.checked;
+            let hasRat = chkRatX.checked || chkRatY.checked || chkRatHV.checked;
+            const isLog = chkLogY && chkLogY.checked;
+            
+            let maxRat = -Infinity; let minRat = Infinity;
+            let maxRaw = -Infinity; let minRaw = Infinity;
+            const safeLogMin = (val) => val > 1e-6 ? val : Infinity;
+
+            if (hasRat) {
+                globalPlotData.forEach((p, i) => {
+                    const freq = i * df;
+                    if (freq < fMin || freq > fMax) return; 
+                    if (freq < 0.2) return; // ΑΓΝΟΗΣΗ DC & Εξαιρετικά χαμηλών συχνοτήτων για το auto-scale
+                    
+                    if(chkRatX.checked) { maxRat = Math.max(maxRat, p.ratX); minRat = Math.min(minRat, safeLogMin(p.ratX)); }
+                    if(chkRatY.checked) { maxRat = Math.max(maxRat, p.ratY); minRat = Math.min(minRat, safeLogMin(p.ratY)); }
+                    if(chkRatHV.checked) { 
+                        maxRat = Math.max(maxRat, p.ratHV + (chkSigma.checked ? p.sigmaHV : 0)); 
+                        minRat = Math.min(minRat, safeLogMin(p.ratHV - (chkSigma.checked ? p.sigmaHV : 0))); 
+                    }
+                });
+
+                if (maxRat === -Infinity || maxRat < 0.1) maxRat = 10;
+                if (minRat === Infinity) minRat = 0.5;
+                
+                maxRat = Math.max(2, maxRat * 1.2); // Tουλάχιστον 2 και 20% οπτικό περιθώριο
+                
+                if (isLog) {
+                    minRat = minRat / 1.5; 
+                    if (minRat >= maxRat) minRat = maxRat / 10; 
+                } else { minRat = 0; }
+            }
+
+            if (hasRaw) {
+                globalPlotData.forEach((p, i) => {
+                    const freq = i * df;
+                    if (freq < fMin || freq > fMax) return; 
+                    if (i === 0) return; 
+                    
+                    if(chkFreqX.checked) { maxRaw = Math.max(maxRaw, p.sx); minRaw = Math.min(minRaw, safeLogMin(p.sx)); }
+                    if(chkFreqY.checked) { maxRaw = Math.max(maxRaw, p.sy); minRaw = Math.min(minRaw, safeLogMin(p.sy)); }
+                    if(chkFreqZ.checked) { maxRaw = Math.max(maxRaw, p.sz); minRaw = Math.min(minRaw, safeLogMin(p.sz)); }
+                });
+                if (maxRaw === -Infinity) maxRaw = 0.1;
+                if (minRaw === Infinity) minRaw = 0.001;
+                maxRaw *= 1.5; 
+                if (isLog) {
+                    minRaw = minRaw / 1.5; 
+                    if (minRaw >= maxRaw) minRaw = maxRaw / 10; 
+                } else { minRaw = 0; }
+            }
+
+            const logMaxRat = isLog ? Math.log10(maxRat) : 0; const logMinRat = isLog ? Math.log10(minRat) : 0;
+            const logMaxRaw = isLog ? Math.log10(maxRaw) : 0; const logMinRaw = isLog ? Math.log10(minRaw) : 0;
+
+            const getYRat = (val) => {
+                if (!isLog) {
+                    let safeVal = Math.max(val, minRat); 
+                    safeVal = Math.min(safeVal, maxRat); // Clamping
+                    return h - marginB - ((safeVal - minRat) / (maxRat - minRat)) * (h - marginB - 10);
+                } else {
+                    let safeVal = Math.max(val, minRat);
+                    safeVal = Math.min(safeVal, maxRat); // Clamping 
+                    let lVal = Math.log10(safeVal);
+                    return h - marginB - ((lVal - logMinRat) / (logMaxRat - logMinRat)) * (h - marginB - 10);
+                }
+            };
+            
+            const getYRaw = (val) => {
+                if (!isLog) {
+                    let safeVal = Math.max(val, minRaw); 
+                    safeVal = Math.min(safeVal, maxRaw); // Clamping
+                    return h - marginB - ((safeVal - minRaw) / (maxRaw - minRaw)) * (h - marginB - 10);
+                } else {
+                    let safeVal = Math.max(val, minRaw); 
+                    safeVal = Math.min(safeVal, maxRaw); // Clamping
+                    let lVal = Math.log10(safeVal);
+                    return h - marginB - ((lVal - logMinRaw) / (logMaxRaw - logMinRaw)) * (h - marginB - 10);
+                }
+            };
+
+            // --- CANVAS CLIPPING (Οριοθέτηση σχεδίασης εντός του πλαισίου) ---
+            ctxFreq.save();
+            ctxFreq.beginPath();
+            ctxFreq.rect(0, 0, w, h - marginB);
+            ctxFreq.clip();
+
+            if (chkSigma.checked && chkRatHV.checked) {
+                ctxFreq.save(); ctxFreq.lineWidth = 1.5; ctxFreq.strokeStyle = '#ef4444'; ctxFreq.setLineDash([5, 5]); 
+                ctxFreq.beginPath(); let firstPlus = true;
+                for (let i = 0; i < globalPlotData.length; i++) {
+                    const freq = i * df;
+                    if (freq >= fMin && freq <= fMax) {
+                        const px = ((freq - fMin) / (fMax - fMin)) * w;
+                        const py = getYRat(globalPlotData[i].ratHV + globalPlotData[i].sigmaHV);
+                        if (firstPlus) { ctxFreq.moveTo(px, py); firstPlus = false; } else ctxFreq.lineTo(px, py);
+                    }
+                }
+                ctxFreq.stroke();
+                ctxFreq.beginPath(); let firstMinus = true;
+                for (let i = 0; i < globalPlotData.length; i++) {
+                    const freq = i * df;
+                    if (freq >= fMin && freq <= fMax) {
+                        const px = ((freq - fMin) / (fMax - fMin)) * w;
+                        const py = getYRat(Math.max(0, globalPlotData[i].ratHV - globalPlotData[i].sigmaHV));
+                        if (firstMinus) { ctxFreq.moveTo(px, py); firstMinus = false; } else ctxFreq.lineTo(px, py);
+                    }
+                }
+                ctxFreq.stroke(); ctxFreq.restore();
+            }
+
+            const drawChannel = (key, color, lw = 1.5, useRawAxis = false) => {
+                ctxFreq.beginPath(); ctxFreq.strokeStyle = color; ctxFreq.lineWidth = lw; let first = true;
+                globalPlotData.forEach((p, i) => {
+                    const freq = i * df;
+                    if (freq >= fMin && freq <= fMax) {
+                        const px = ((freq - fMin) / (fMax - fMin)) * w;
+                        const py = useRawAxis ? getYRaw(p[key]) : getYRat(p[key]);
+                        if (first) { ctxFreq.moveTo(px, py); first = false; } else ctxFreq.lineTo(px, py);
+                    }
+                });
+                ctxFreq.stroke();
+            };
+
+            if (chkRatX.checked) drawChannel('ratX', '#f97316', 1.5, false); 
+            if (chkRatY.checked) drawChannel('ratY', '#14b8a6', 1.5, false); 
+            if (chkRatHV.checked) drawChannel('ratHV', '#a855f7', 2.5, false);
+            if (chkFreqX.checked) drawChannel('sx', '#ef4444', 1.5, true);
+            if (chkFreqY.checked) drawChannel('sy', '#22c55e', 1.5, true);
+            if (chkFreqZ.checked) drawChannel('sz', '#3b82f6', 1.5, true);
+
+            ctxFreq.restore(); // ΤΕΛΟΣ CANVAS CLIPPING
+
+            let statsText = `Ntot = ${totalFramesCount}`;
+            if (chkAvg.checked && specHistoryX.length > 0) statsText += ` | Navg = ${specHistoryX.length}`;
+            
+            if (hasRaw) {
+                ctxFreq.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxFreq.font = '10px sans-serif'; ctxFreq.textAlign = 'left';
+                ctxFreq.fillText(`Raw Max: ${maxRaw.toFixed(4)} gal`, 10, 16);
+            }
+            if (hasRat) {
+                ctxFreq.fillStyle = 'rgba(168, 85, 247, 0.9)'; ctxFreq.font = 'bold 10px sans-serif'; ctxFreq.textAlign = 'right';
+                let scaleText = isLog ? `${minRat.toFixed(2)} - ${maxRat.toFixed(1)}` : `0 - ${maxRat.toFixed(1)}`;
+                ctxFreq.fillText(`Ratios Scale: ${scaleText}`, w - 10, 16);
+            }
+            
+            ctxFreq.fillStyle = 'rgba(248, 250, 252, 0.9)'; ctxFreq.font = 'bold 12px sans-serif'; ctxFreq.textAlign = 'center';
+            ctxFreq.fillText(statsText, w / 2, 20);
+
+            ctxFreq.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxFreq.font = '10px sans-serif'; ctxFreq.textAlign = 'left';
+            ctxFreq.fillText(fMin.toFixed(1) + ' Hz', 10, h - 8);
+            ctxFreq.textAlign = 'right'; ctxFreq.fillText(fMax.toFixed(1) + ' Hz', w - 10, h - 8);
+
+            if (cursorBin !== null && cursorBin >= 0 && cursorBin < globalPlotData.length) {
+                const freq = cursorBin * df;
+                if (freq >= fMin && freq <= fMax) {
+                    const px = ((freq - fMin) / (fMax - fMin)) * w;
+                    const p = globalPlotData[cursorBin];
+
+                    ctxFreq.beginPath(); ctxFreq.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctxFreq.lineWidth = 1;
+                    ctxFreq.moveTo(px, 0); ctxFreq.lineTo(px, h); ctxFreq.stroke();
+
+                    let lines = [`Συχνότητα: ${freq.toFixed(2)} Hz`];
+                    if (chkFreqX.checked) lines.push({ t: `Sx: ${p.sx.toFixed(4)}`, c: '#ef4444' });
+                    if (chkFreqY.checked) lines.push({ t: `Sy: ${p.sy.toFixed(4)}`, c: '#22c55e' });
+                    if (chkFreqZ.checked) lines.push({ t: `Sz: ${p.sz.toFixed(4)}`, c: '#3b82f6' });
+                    if (chkRatX.checked) lines.push({ t: `Sx/Sz: ${p.ratX.toFixed(2)}`, c: '#f97316' });
+                    if (chkRatY.checked) lines.push({ t: `Sy/Sz: ${p.ratY.toFixed(2)}`, c: '#14b8a6' });
+                    if (chkRatHV.checked) {
+                        lines.push({ t: `H/V: ${p.ratHV.toFixed(2)}`, c: '#a855f7' });
+                        if(chkSigma.checked) lines.push({ t: `±1σ: ${p.sigmaHV.toFixed(2)}`, c: '#ef4444' });
+                    }
+
+                    ctxFreq.font = "10px sans-serif";
+                    let boxW = 110; let boxH = 16 + (lines.length - 1) * 14;
+                    let boxX = px + 10; let boxY = 30; 
+                    if (boxX + boxW > w) boxX = px - boxW - 10;
+
+                    ctxFreq.fillStyle = 'rgba(15, 23, 42, 0.9)'; ctxFreq.strokeStyle = '#334155';
+                    ctxFreq.beginPath(); ctxFreq.roundRect(boxX, boxY, boxW, boxH, 6); ctxFreq.fill(); ctxFreq.stroke();
+
+                    ctxFreq.fillStyle = '#f8fafc'; ctxFreq.fillText(lines[0], boxX + 8, boxY + 14);
+                    let textY = boxY + 28;
+                    for (let i = 1; i < lines.length; i++) {
+                        ctxFreq.fillStyle = lines[i].c; ctxFreq.fillText(lines[i].t, boxX + 8, textY); textY += 14;
+                    }
+                }
+            }
+        }
+
+        // --- INTERACTION (PAN & ZOOM) ---
+        let isPanning = false; let startX = 0; let startFMin = 0; let startFMax = 0;
+        let touchStartDist = 0; let touchStartCenterX = 0;
+
+        function updateCursorByClientX(clientX) {
+            if(globalPlotData.length === 0) return;
+            const rect = freqCanvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const freqAtCursor = fMin + (x / rect.width) * (fMax - fMin);
+            cursorBin = Math.round(freqAtCursor / df);
+            if (cursorBin < 0) cursorBin = 0;
+            if (cursorBin >= globalPlotData.length) cursorBin = globalPlotData.length - 1;
+            drawFreq();
+        }
+
+        freqCanvas.addEventListener('mousedown', (e) => {
+            isPanning = true; startX = e.clientX; startFMin = fMin; startFMax = fMax; cursorBin = null; drawFreq();
+        });
+        freqCanvas.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                const rect = freqCanvas.getBoundingClientRect();
+                const span = startFMax - startFMin;
+                const dfreq = -((e.clientX - startX) / rect.width) * span; 
+                let newFMin = startFMin + dfreq; let newFMax = startFMax + dfreq;
+                if (newFMin < 0) { newFMin = 0; newFMax = span; }
+                if (newFMax > fmax) { newFMax = fmax; newFMin = fmax - span; }
+                fMin = newFMin; fMax = newFMax; drawFreq();
+            } else updateCursorByClientX(e.clientX);
+        });
+        freqCanvas.addEventListener('mouseup', () => { isPanning = false; });
+        freqCanvas.addEventListener('mouseleave', () => { isPanning = false; cursorBin = null; drawFreq(); });
+
+        freqCanvas.addEventListener('wheel', (e) => {
+            e.preventDefault(); if (globalPlotData.length === 0) return;
+            const rect = freqCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const freqAtCursor = fMin + (x / rect.width) * (fMax - fMin);
+            const zoomFactor = e.deltaY > 0 ? 1.2 : 0.8; 
+            let newSpan = (fMax - fMin) * zoomFactor;
+            if (newSpan > fmax) newSpan = fmax; if (newSpan < 0.5) newSpan = 0.5; 
+            let newFMin = freqAtCursor - (x / rect.width) * newSpan;
+            let newFMax = newFMin + newSpan;
+            if (newFMin < 0) { newFMin = 0; newFMax = Math.min(fmax, newSpan); }
+            if (newFMax > fmax) { newFMax = fmax; newFMin = Math.max(0, fmax - newSpan); }
+            fMin = newFMin; fMax = newFMax; drawFreq();
+        }, {passive: false});
+
+        freqCanvas.addEventListener('dblclick', () => { fMin = 0; fMax = fmax; drawFreq(); });
+
+        let lastTapTime = 0;
+        freqCanvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); const rect = freqCanvas.getBoundingClientRect();
+            if (e.touches.length === 2) {
+                isPanning = false;
+                let dx = e.touches[0].clientX - e.touches[1].clientX; let dy = e.touches[0].clientY - e.touches[1].clientY;
+                touchStartDist = Math.sqrt(dx*dx + dy*dy);
+                startFMin = fMin; startFMax = fMax;
+                touchStartCenterX = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
+            } else if (e.touches.length === 1) {
+                isPanning = true; startX = e.touches[0].clientX; startFMin = fMin; startFMax = fMax;
+            }
+        }, {passive: false});
+
+        freqCanvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); const rect = freqCanvas.getBoundingClientRect();
+            if (e.touches.length === 2 && touchStartDist > 0) {
+                let dx = e.touches[0].clientX - e.touches[1].clientX; let dy = e.touches[0].clientY - e.touches[1].clientY;
+                let dist = Math.sqrt(dx*dx + dy*dy);
+                let zoomFactor = touchStartDist / dist; let initialSpan = startFMax - startFMin; let newSpan = initialSpan * zoomFactor;
+                if (newSpan > fmax) newSpan = fmax; if (newSpan < 0.5) newSpan = 0.5;
+                let freqAtCenter = startFMin + (touchStartCenterX / rect.width) * initialSpan;
+                let newFMin = freqAtCenter - (touchStartCenterX / rect.width) * newSpan;
+                let newFMax = newFMin + newSpan;
+                if (newFMin < 0) { newFMin = 0; newFMax = Math.min(fmax, newSpan); }
+                if (newFMax > fmax) { newFMax = fmax; newFMin = Math.max(0, fmax - newSpan); }
+                fMin = newFMin; fMax = newFMax; cursorBin = null; drawFreq();
+            } else if (e.touches.length === 1 && isPanning) {
+                const span = startFMax - startFMin; const dfreq = -((e.touches[0].clientX - startX) / rect.width) * span;
+                let newFMin = startFMin + dfreq; let newFMax = startFMax + dfreq;
+                if (newFMin < 0) { newFMin = 0; newFMax = span; }
+                if (newFMax > fmax) { newFMax = fmax; newFMin = fmax - span; }
+                fMin = newFMin; fMax = newFMax; cursorBin = null; drawFreq();
+            }
+        }, {passive: false});
+
+        freqCanvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (e.touches.length === 0) {
+                isPanning = false; touchStartDist = 0;
+                let currentTime = new Date().getTime();
+                if (currentTime - lastTapTime < 300) { fMin = 0; fMax = fmax; drawFreq(); } 
+                else {
+                    if (e.changedTouches.length === 1 && Math.abs(e.changedTouches[0].clientX - startX) < 10) {
+                        updateCursorByClientX(e.changedTouches[0].clientX);
+                    } else { cursorBin = null; drawFreq(); }
+                }
+                lastTapTime = currentTime;
+            } else if (e.touches.length === 1) {
+                isPanning = true; startX = e.touches[0].clientX; startFMin = fMin; startFMax = fMax;
+            }
+        }, {passive: false});
+
+
+        // --- CONTROLS & COUNTDOWN LOGIC ---
+        function toggleUI(running) {
+            btnSensor.classList.toggle('hidden', running);
+            btnSim.classList.toggle('hidden', running);
+            activeControls.classList.toggle('hidden', !running);
+            inpFmax.disabled = running; inpN.disabled = running; chkAntiAlias.disabled = running; 
+            
+            if (!running && !isWaiting) {
+                overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
+                overlayTime.innerHTML = '<span class="text-slate-400 text-sm">Διακόπηκε</span>';
+                overlayFreq.innerHTML = '<span class="text-slate-400 text-sm">Διακόπηκε</span>';
+            }
+        }
+
+        function updatePauseUI() {
+            if (isPaused) {
+                txtPause.textContent = "Συνέχιση"; iconPause.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>'; 
+                btnPause.classList.replace('bg-amber-500', 'bg-emerald-500'); btnPause.classList.replace('hover:bg-amber-600', 'hover:bg-emerald-600');
+            } else {
+                txtPause.textContent = "Παύση"; iconPause.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>'; 
+                btnPause.classList.replace('bg-emerald-500', 'bg-amber-500'); btnPause.classList.replace('hover:bg-emerald-600', 'hover:bg-amber-600');
+            }
+        }
+
+        function startCountdown(simMode, isResume) {
+            if (isWaiting) return;
+            isWaiting = true;
+            let count = 5;
+            
+            if (!isResume) {
+                updateDaqParams();
+                isRunning = true;
+                toggleUI(true);
+                dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Αναμονή...</td></tr>';
+            } else {
+                btnPause.disabled = true; 
+            }
+            
+            overlayTime.classList.remove('hidden');
+            overlayFreq.classList.remove('hidden');
+            
+            const updateMsg = (c) => {
+                const msg = `<div class="flex flex-col items-center justify-center h-full"><span class="text-white text-6xl font-black mb-2">${c}</span><span class="text-slate-300 text-sm font-bold">Τοποθετήστε τη συσκευή...</span></div>`;
+                overlayTime.innerHTML = msg;
+                overlayFreq.innerHTML = `<div class="flex flex-col items-center justify-center h-full"><span class="text-white text-6xl font-black mb-2">${c}</span></div>`;
+            };
+            
+            updateMsg(count);
+
+            countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    updateMsg(count);
+                } else {
+                    clearInterval(countdownInterval);
+                    isWaiting = false;
+                    btnPause.disabled = false;
+                    
+                    if (isResume) {
+                        isPaused = false;
+                        updatePauseUI();
+                        overlayTime.classList.add('hidden');
+                        if (specX.length === 0) overlayFreq.innerHTML = '<span class="text-slate-400 text-sm">Αναμονή για γέμισμα buffer...</span>';
+                        else overlayFreq.classList.add('hidden');
+                        requestWakeLock();
+                        
+                        if (chkAvg.checked && !isFullscreen) {
+                            toggleFullscreen();
+                        }
+
+                        // --- ΕΠΑΝΑΜΗΔΕΝΙΣΜΟΣ HPF & ΚΑΘΑΡΙΣΜΟΣ PARTIAL FFT ΜΕΤΑ ΤΗΝ ΠΑΥΣΗ ---
+                        firstSample = true;
+                        hpfState = { x: 0, y: 0, z: 0 };
+                        fftBufferX = []; fftBufferY = []; fftBufferZ = [];
+
+                    } else {
+                        actualStartDAQ(simMode);
+                    }
+                }
+            }, 1000);
+        }
+
+        function actualStartDAQ(simMode) {
+            isSimulating = simMode;
+            isPaused = false;
+            
+            timeBuffer = []; fftBufferX = []; fftBufferY = []; fftBufferZ = [];
+            specHistoryX = []; specHistoryY = []; specHistoryZ = [];
+            baseSpecX = []; baseSpecY = []; baseSpecZ = [];
+            simTime = 0; totalFramesCount = 0;
+            specX = []; specY = []; specZ = [];
+            globalPlotData = []; cursorBin = null;
+            fMin = 0; fMax = fmax;
+            
+            firstSample = true;
+            hpfState = { x: 0, y: 0, z: 0 };
+            rawPrev = { x: 0, y: 0, z: 0 };
+            lpfState = { x: 0, y: 0, z: 0 };
+            
+            dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
+
+            errorBox.classList.add('hidden');
+            updatePauseUI();
+            
+            overlayTime.classList.add('hidden');
+            overlayFreq.classList.remove('hidden');
+            overlayFreq.innerHTML = '<span class="text-slate-400 text-sm">Αναμονή για γέμισμα buffer (Frame Size)...</span>';
+
+            if (chkAvg.checked && !isFullscreen) {
+                toggleFullscreen();
+            }
+
+            if (!isSimulating) {
+                window.addEventListener('devicemotion', handleMotion, true);
+            }
+
+            requestWakeLock();
+            daqIntervalId = setInterval(daqTick, dt * 1000);
+            
+            resizeCanvases();
+            animIdTime = requestAnimationFrame(drawTime);
+        }
+
+        btnPause.addEventListener('click', () => {
+            if (isWaiting) return;
+            
+            if (isPaused) {
+                startCountdown(isSimulating, true);
+            } else {
+                isPaused = true;
+                updatePauseUI();
+                releaseWakeLock();
+                overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
+                overlayTime.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><span class="text-amber-500 text-lg font-bold">Σε Παύση</span><span class="text-slate-300 text-xs mt-1">Μπορείτε να σηκώσετε τη συσκευή</span></div>';
+                overlayFreq.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><span class="text-amber-500 text-lg font-bold">Σε Παύση</span></div>';
+            }
+        });
+
+        function stopAll() {
+            isRunning = false; isPaused = false; isWaiting = false; isWaitingForPickup = false;
+            clearInterval(countdownInterval);
+            clearInterval(daqIntervalId);
+            cancelAnimationFrame(animIdTime);
+            window.removeEventListener('devicemotion', handleMotion, true);
+            btnPause.disabled = false;
+            releaseWakeLock();
+            
+            const liveReadout = document.getElementById('liveSensorData');
+            if (liveReadout) liveReadout.textContent = '';
+            
+            toggleUI(false);
+        }
+
+        async function requestAccess() {
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission === 'granted') startCountdown(false, false);
+                    else showError('Απαιτείται άδεια πρόσβασης στους αισθητήρες. Ελέγξτε τις ρυθμίσεις του Browser σας.');
+                } catch (e) {
+                    showError('Σφάλμα: Η συσκευή απαιτεί ασφαλή σύνδεση (HTTPS) ή κλικ στο κουμπί.');
+                }
+            } else {
+                startCountdown(false, false);
+            }
+        }
+
+        // Live ενημέρωση
+        [chkSmooth, inpSmoothPts, chkLogY, chkSigma].forEach(el => {
+            el.addEventListener('change', () => {
+                if (el === chkLogY || el === chkSigma) drawFreq();
+                else if (!isRunning || isPaused) applySmoothingAndUpdate();
+            });
+        });
+        [chkFreqX, chkFreqY, chkFreqZ, chkRatX, chkRatY, chkRatHV].forEach(chk => {
+            chk.addEventListener('change', () => drawFreq()); 
+        });
+
+        btnSensor.addEventListener('click', requestAccess);
+        btnSim.addEventListener('click', () => startCountdown(true, false));
+        btnStop.addEventListener('click', stopAll);
+
+    </script>
+</body>
+</html>
