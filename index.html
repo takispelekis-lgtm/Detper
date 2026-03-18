@@ -57,7 +57,6 @@
 
         <main class="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1">
             
-            <!-- DAQ Params -->
             <div class="lg:col-span-1 flex flex-col gap-4">
                 
                 <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
@@ -376,10 +375,17 @@
 
         let currentWindow = { array: [], correction: 1.0 };
 
-        // Hardware sensor latest data & Decimation Accumulator
-        let rawAccAccumulator = { x: 0, y: 0, z: 0, count: 0 };
+        // Hardware sensor latest data & DSP Variables
         let pickupBaseline = { x: 0, y: 0, z: 0 };
-        let hwData = { x: 0, y: 0, z: 0 };
+        let rawG = { x: 0, y: 0, z: 0 }; // Raw Acceleration with Gravity (in gal)
+        
+        // 5-Point Median Filter Buffers (Despiker)
+        let medBufX = [], medBufY = [], medBufZ = [];
+        
+        // Exponential Moving Average (Gravity Blocker)
+        let gravEMA = null; 
+        let gravAlpha = 0.99; // Cutoff ~0.08 Hz at 50Hz sampling
+
         let simTime = 0;
         let totalFramesCount = 0;
 
@@ -387,13 +393,9 @@
         let fMin = 0;
         let fMax = fmax;
 
-        // LPF & HPF (DC Blocker) State
+        // Anti-Alias LPF State
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
-        let hpfAlpha = 1;
-        let hpfState = { x: 0, y: 0, z: 0 };
-        let rawPrev = { x: 0, y: 0, z: 0 };
-        let firstSample = true;
 
         // Buffers
         let timeBuffer = []; 
@@ -491,12 +493,6 @@
             if (fmax !== oldFmax) { fMin = 0; fMax = fmax; }
 
             lpfAlpha = dt / ((1 / (2 * Math.PI * fmax)) + dt);
-            
-            // Το HPF υπολογίζεται με βάση το αυστηρά σταθερό dt=0.02
-            let hpfCutoff = 0.1; 
-            let rcHPF = 1 / (2 * Math.PI * hpfCutoff);
-            hpfAlpha = rcHPF / (rcHPF + dt);
-            
             currentWindow = calculateWindowCoeffs(inpWindow.value, N);
         }
         inpFmax.addEventListener('change', updateDaqParams); inpN.addEventListener('change', updateDaqParams); inpWindow.addEventListener('change', updateDaqParams);
@@ -515,6 +511,14 @@
         resizeCanvases();
 
         // --- MATH FUNCTIONS ---
+        
+        // Fast Median Function for Despiking
+        function getMedian(arr) {
+            if (arr.length === 0) return 0;
+            let sorted = [...arr].sort((a, b) => a - b);
+            return sorted[Math.floor(sorted.length / 2)];
+        }
+
         function computeFFTMagnitude(realArray) {
             let n = realArray.length; let re = [...realArray]; let im = new Array(n).fill(0);
             for (let i = 0; i < n; i++) {
@@ -570,39 +574,37 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- HARDWARE SENSOR (ΑΣΥΓΧΡΟΝΗ ΣΥΛΛΟΓΗ ΣΤΟΝ ΚΟΥΒΑ - DECIMATION) ---
+        // --- HARDWARE SENSOR (RAW WITH GRAVITY TO BYPASS NOISE GATE) ---
         function handleMotion(event) {
             let ax = null, ay = null, az = null;
             
+            // 1. Zητάμε ΑΠΟΚΛΕΙΣΤΙΚΑ την ακατέργαστη επιτάχυνση για να παρακάμψουμε 
+            // το Android Deadband/Noise Gate που βγάζει μηδενικά στην απόλυτη ησυχία!
             if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
                 ax = event.accelerationIncludingGravity.x;
                 ay = event.accelerationIncludingGravity.y;
                 az = event.accelerationIncludingGravity.z;
             } else if (event.acceleration && typeof event.acceleration.x === 'number') {
+                // Fallback αν η συσκευή αρνείται να δώσει raw δεδομένα
                 ax = event.acceleration.x;
                 ay = event.acceleration.y;
                 az = event.acceleration.z;
             }
 
             if (ax !== null) {
-                // Ασφάλεια εναντίον hardware glitches (αν το κινητό στείλει > 40 m/s^2, το αγνοούμε)
-                if (Math.abs(ax) > 40 || Math.abs(ay) > 40 || Math.abs(az) > 40) return;
-
-                rawAccAccumulator.x += ax;
-                rawAccAccumulator.y += ay;
-                rawAccAccumulator.z += az;
-                rawAccAccumulator.count++;
+                rawG.x = ax * 100; // gal
+                rawG.y = ay * 100;
+                rawG.z = az * 100;
                 hasReceivedData = true;
 
                 if (isWaitingForPickup) {
-                    let cx = ax * 100; let cy = ay * 100; let cz = az * 100;
-                    let dx = cx - pickupBaseline.x; let dy = cy - pickupBaseline.y; let dz = cz - pickupBaseline.z;
+                    let dx = rawG.x - pickupBaseline.x; let dy = rawG.y - pickupBaseline.y; let dz = rawG.z - pickupBaseline.z;
                     if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 150) dismissCompletedOverlay();
                 }
             }
         }
 
-        // --- DAQ LOGIC (ΣΥΓΧΡΟΝΟΣ ΧΡΟΝΟΜΕΤΡΗΤΗΣ - ΦΙΛΤΡΟ) ---
+        // --- DAQ LOGIC (MEDIAN FILTER & EMA GRAVITY REMOVAL) ---
         function daqTick() {
             if (!isRunning || isPaused || isWaiting) return;
 
@@ -619,41 +621,32 @@
             } else {
                 if (!hasReceivedData) return;
 
-                let rawX = rawPrev.x; 
-                let rawY = rawPrev.y; 
-                let rawZ = rawPrev.z;
+                // 1. Συλλογή των Raw Δεδομένων στον 5-point buffer
+                medBufX.push(rawG.x); if(medBufX.length > 5) medBufX.shift();
+                medBufY.push(rawG.y); if(medBufY.length > 5) medBufY.shift();
+                medBufZ.push(rawG.z); if(medBufZ.length > 5) medBufZ.shift();
 
-                // Αδειάζουμε τον κουβά (Αντιαλλιακό φιλτράρισμα υπερδειγματοληψίας)
-                if (rawAccAccumulator.count > 0) {
-                    rawX = (rawAccAccumulator.x / rawAccAccumulator.count) * 100; // μετατροπή σε gal
-                    rawY = (rawAccAccumulator.y / rawAccAccumulator.count) * 100;
-                    rawZ = (rawAccAccumulator.z / rawAccAccumulator.count) * 100;
-                    // Επαναφορά του κουβά
-                    rawAccAccumulator = { x: 0, y: 0, z: 0, count: 0 };
+                // 2. MEDIAN FILTER: Απορρίπτει άμεσα κάθε καρφί (glitch) της Samsung!
+                let mX = getMedian(medBufX);
+                let mY = getMedian(medBufY);
+                let mZ = getMedian(medBufZ);
+
+                // 3. EMA GRAVITY FILTER: Αφαιρεί τέλεια τα 981 gal της βαρύτητας
+                if (gravEMA === null) {
+                    gravEMA = { x: mX, y: mY, z: mZ };
+                } else {
+                    gravEMA.x = gravAlpha * gravEMA.x + (1 - gravAlpha) * mX;
+                    gravEMA.y = gravAlpha * gravEMA.y + (1 - gravAlpha) * mY;
+                    gravEMA.z = gravAlpha * gravEMA.z + (1 - gravAlpha) * mZ;
                 }
 
-                // Επαναμηδενισμός φίλτρου για να αποφύγουμε initial ringing
-                if (firstSample) { 
-                    rawPrev = { x: rawX, y: rawY, z: rawZ }; 
-                    hpfState = { x: 0, y: 0, z: 0 }; 
-                    firstSample = false; 
-                }
-
-                // Ψηφιακό Υψιπερατό Φίλτρο (HPF) με αυστηρά σταθερό dt = 0.02
-                hpfState.x = hpfAlpha * (hpfState.x + rawX - rawPrev.x);
-                hpfState.y = hpfAlpha * (hpfState.y + rawY - rawPrev.y);
-                hpfState.z = hpfAlpha * (hpfState.z + rawZ - rawPrev.z);
+                // Το τελικό, τέλεια καθαρό microtremor σήμα!
+                x = mX - gravEMA.x;
+                y = mY - gravEMA.y;
+                z = mZ - gravEMA.z;
                 
-                rawPrev = { x: rawX, y: rawY, z: rawZ };
-                
-                x = hpfState.x; 
-                y = hpfState.y; 
-                z = hpfState.z;
-                
-                // Ενημέρωση UI
-                hwData.x = x; hwData.y = y; hwData.z = z;
                 const liveReadout = document.getElementById('liveSensorData');
-                if (liveReadout) liveReadout.textContent = `[Clean ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
+                if (liveReadout) liveReadout.textContent = `[Microtremors gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
             // Anti-Aliasing LPF
@@ -704,7 +697,7 @@
 
                 if (chkAvg.checked && totalFramesCount === numAvg) {
                     isPaused = true; updatePauseUI(); releaseWakeLock();
-                    isWaitingForPickup = true; pickupBaseline = { x: hwData.x, y: hwData.y, z: hwData.z };
+                    isWaitingForPickup = true; pickupBaseline = { x: rawG.x, y: rawG.y, z: rawG.z };
                     overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
                     
                     overlayTime.innerHTML = '<div class="bg-emerald-500/90 backdrop-blur-md px-5 py-2 rounded-xl shadow-lg border border-emerald-400 text-white font-bold tracking-wide cursor-pointer pointer-events-auto text-center">ΟΛΟΚΛΗΡΩΘΗΚΕ</div>';
@@ -1232,7 +1225,7 @@
                         requestWakeLock();
                         if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; rawAccAccumulator = { x: 0, y: 0, z: 0, count: 0 };
+                        firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; gravEMA = null; medBufX = []; medBufY = []; medBufZ = [];
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
                     } else { actualStartDAQ(simMode); }
                 }
@@ -1251,7 +1244,7 @@
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
             firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; rawPrev = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
-            rawAccAccumulator = { x: 0, y: 0, z: 0, count: 0 };
+            gravEMA = null; medBufX = []; medBufY = []; medBufZ = [];
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
