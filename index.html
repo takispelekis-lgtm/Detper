@@ -74,6 +74,8 @@
                             <div>
                                 <label class="block text-slate-600 mb-1 text-[11px] font-bold">Frame (N)</label>
                                 <select id="inpN" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 outline-none focus:border-blue-500 transition-colors">
+                                    <!-- ΠΡΟΣΤΕΘΗΚΕ ΤΟ 128 -->
+                                    <option value="128">128</option>
                                     <option value="256">256</option>
                                     <option value="512" selected>512</option>
                                     <option value="1024">1024</option>
@@ -360,7 +362,7 @@
         let isPaused = false;
         let isWaiting = false;
         let isWaitingForPickup = false;
-        let hasReceivedData = false; // ΝΕΟ: Ελέγχει αν το κινητό ξύπνησε πραγματικά τον αισθητήρα
+        let hasReceivedData = false; 
         let pickupBaseline = { x: 0, y: 0, z: 0 };
         let daqIntervalId;
         let animIdTime;
@@ -383,13 +385,14 @@
         let fMin = 0;
         let fMax = fmax;
 
-        // LPF & HPF (DC Blocker) State
+        // LPF & Gravity Extraction (Αλγόριθμος Android SDK)
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
-        let hpfAlpha = 1;
-        let hpfState = { x: 0, y: 0, z: 0 };
-        let rawPrev = { x: 0, y: 0, z: 0 };
+        
+        let gravity = { x: 0, y: 0, z: 0 };
+        let lastRaw = { x: 0, y: 0, z: 0 };
         let firstSample = true;
+        let sensorAlpha = 0.95; // Συντελεστής για το Low-Pass απομόνωσης της βαρύτητας
 
         // Buffers
         let timeBuffer = []; 
@@ -487,9 +490,6 @@
             if (fmax !== oldFmax) { fMin = 0; fMax = fmax; }
 
             lpfAlpha = dt / ((1 / (2 * Math.PI * fmax)) + dt);
-            let hpfCutoff = 0.1; 
-            let rcHPF = 1 / (2 * Math.PI * hpfCutoff);
-            hpfAlpha = rcHPF / (rcHPF + dt);
             currentWindow = calculateWindowCoeffs(inpWindow.value, N);
         }
         inpFmax.addEventListener('change', updateDaqParams); inpN.addEventListener('change', updateDaqParams); inpWindow.addEventListener('change', updateDaqParams);
@@ -563,7 +563,61 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- DAQ LOGIC ---
+        // --- HARDWARE SENSOR (ASYNC) ---
+        function handleMotion(event) {
+            let ax = null, ay = null, az = null;
+            
+            // Προτεραιότητα στο Acceleration Including Gravity
+            if (event.accelerationIncludingGravity && event.accelerationIncludingGravity.x !== null) {
+                ax = event.accelerationIncludingGravity.x;
+                ay = event.accelerationIncludingGravity.y;
+                az = event.accelerationIncludingGravity.z;
+            } else if (event.acceleration && event.acceleration.x !== null) {
+                ax = event.acceleration.x;
+                ay = event.acceleration.y;
+                az = event.acceleration.z;
+            }
+
+            if (ax !== null) {
+                // --- 1. ΑΛΓΟΡΙΘΜΟΣ DESPIKING (ΑΠΟΡΡΙΨΗ ΚΑΡΦΙΩΝ) ---
+                if (hasReceivedData) {
+                    let jumpX = Math.abs(ax - lastRaw.x);
+                    let jumpY = Math.abs(ay - lastRaw.y);
+                    let jumpZ = Math.abs(az - lastRaw.z);
+                    
+                    // Αν υπάρχει ξαφνικό άλμα πάνω από 2 m/s^2 (200 gal) μέσα σε κλάσματα, το θεωρούμε glitch.
+                    if (jumpX > 2.0 || jumpY > 2.0 || jumpZ > 2.0) {
+                        return; // ΑΓΝΟΟΥΜΕ ΤΕΛΕΙΩΣ ΑΥΤΗ ΤΗΝ ΤΙΜΗ (ΠΡΟΣΤΑΣΙΑ ΦΙΛΤΡΟΥ)
+                    }
+                }
+
+                lastRaw.x = ax; lastRaw.y = ay; lastRaw.z = az;
+                hasReceivedData = true;
+
+                // --- 2. ΕΞΑΓΩΓΗ & ΑΦΑΙΡΕΣΗ ΒΑΡΥΤΗΤΑΣ (Standard Android SDK Algorithm) ---
+                if (firstSample) {
+                    gravity.x = ax; gravity.y = ay; gravity.z = az;
+                    firstSample = false;
+                } else {
+                    // Low-Pass Φίλτρο για τη βαρύτητα. To 0.95 είναι ιδανικό για ταχύτητα δειγματοληψίας smartphone
+                    gravity.x = sensorAlpha * gravity.x + (1 - sensorAlpha) * ax;
+                    gravity.y = sensorAlpha * gravity.y + (1 - sensorAlpha) * ay;
+                    gravity.z = sensorAlpha * gravity.z + (1 - sensorAlpha) * az;
+                }
+
+                // Υπολογίζουμε την καθαρή γραμμική επιτάχυνση (αφαιρώντας τη βαρύτητα)
+                hwData.x = ax - gravity.x;
+                hwData.y = ay - gravity.y;
+                hwData.z = az - gravity.z;
+                
+                if (isWaitingForPickup) {
+                    let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
+                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) dismissCompletedOverlay();
+                }
+            }
+        }
+
+        // --- DAQ LOGIC (SYNCHRONOUS TIMER) ---
         function daqTick() {
             if (!isRunning || isPaused || isWaiting) return;
 
@@ -578,28 +632,20 @@
                 let driftZ = Math.sin(2 * Math.PI * 0.8 * simTime) * 0.002;
                 x = nX + peakX; y = nY + peakY; z = nZ + driftZ;
             } else {
-                // ΝΕΟ: Αν το κινητό δεν έχει στείλει ακόμα τίποτα, δεν ξεκινάμε το φίλτρο για να μην πάρει "καρφί"
                 if (!hasReceivedData) return;
 
-                let rawX = hwData.x * 100; let rawY = hwData.y * 100; let rawZ = hwData.z * 100;
+                // Τα δεδομένα hwData είναι πλέον απολύτως καθαρά από βαρύτητα και spikes
+                let rawX = hwData.x * 100; // gal
+                let rawY = hwData.y * 100; 
+                let rawZ = hwData.z * 100;
                 
-                if (firstSample) { 
-                    rawPrev = { x: rawX, y: rawY, z: rawZ }; 
-                    hpfState = { x: 0, y: 0, z: 0 }; 
-                    firstSample = false; 
-                }
-                
-                hpfState.x = hpfAlpha * (hpfState.x + rawX - rawPrev.x);
-                hpfState.y = hpfAlpha * (hpfState.y + rawY - rawPrev.y);
-                hpfState.z = hpfAlpha * (hpfState.z + rawZ - rawPrev.z);
-                
-                rawPrev = { x: rawX, y: rawY, z: rawZ };
-                x = hpfState.x; y = hpfState.y; z = hpfState.z;
+                x = rawX; y = rawY; z = rawZ;
                 
                 const liveReadout = document.getElementById('liveSensorData');
-                if (liveReadout) liveReadout.textContent = `[RAW m/s²: X:${hwData.x.toFixed(3)} Y:${hwData.y.toFixed(3)} Z:${hwData.z.toFixed(3)}]`;
+                if (liveReadout) liveReadout.textContent = `[Clean ACC m/s²: X:${hwData.x.toFixed(3)} Y:${hwData.y.toFixed(3)} Z:${hwData.z.toFixed(3)}]`;
             }
 
+            // Anti-Aliasing LPF
             if (chkAntiAlias.checked) {
                 lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
                 lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
@@ -755,34 +801,6 @@
             showToast('Το αρχείο αποθηκεύτηκε στα Downloads!');
         });
 
-        // --- HARDWARE SENSOR ---
-        function handleMotion(event) {
-            // ΝΕΟ: Απόλυτη προστασία από null events (που δημιουργούν καρφιά 981 gal στις χρονοσειρές)
-            let ax = null, ay = null, az = null;
-            
-            if (event.accelerationIncludingGravity && event.accelerationIncludingGravity.x !== null) {
-                ax = event.accelerationIncludingGravity.x;
-                ay = event.accelerationIncludingGravity.y;
-                az = event.accelerationIncludingGravity.z;
-            } else if (event.acceleration && event.acceleration.x !== null) {
-                ax = event.acceleration.x;
-                ay = event.acceleration.y;
-                az = event.acceleration.z;
-            }
-
-            if (ax !== null) {
-                hwData.x = ax; 
-                hwData.y = ay; 
-                hwData.z = az;
-                hasReceivedData = true; // Το κινητό έστειλε την πρώτη έγκυρη τιμή, μπορούμε να ξεκινήσουμε το HPF
-                
-                if (isWaitingForPickup) {
-                    let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
-                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) dismissCompletedOverlay();
-                }
-            }
-        }
-
         function drawGridTime(ctx, w, h, xDivs = 10, yDivs = 4) {
             ctx.save(); ctx.strokeStyle = 'rgba(134, 239, 172, 0.4)'; ctx.lineWidth = 0.5; ctx.setLineDash([4, 4]); ctx.beginPath();
             for (let i = 1; i < xDivs; i++) { let x = (w / xDivs) * i; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
@@ -868,7 +886,6 @@
                 
                 maxRat = Math.max(2, maxRat * 1.2); 
                 
-                // ΝΕΟ: Αποτροπή διαίρεσης με το μηδέν αν το H/V είναι απόλυτη ευθεία!
                 if (maxRat - minRat < 1e-5) { maxRat += 1.0; minRat = Math.max(0.1, minRat - 1.0); }
                 
                 if (isLog) {
@@ -894,7 +911,6 @@
                 
                 maxRaw *= 1.5; 
                 
-                // ΝΕΟ: Αποτροπή διαίρεσης με το μηδέν (NaN) αν ο αισθητήρας επιστρέφει ακριβώς 0!
                 if (maxRaw - minRaw < 1e-5) { maxRaw += 0.01; minRaw = Math.max(0.001, minRaw - 0.01); }
 
                 if (isLog) {
@@ -1205,7 +1221,7 @@
                         requestWakeLock();
                         if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        firstSample = true; hpfState = { x: 0, y: 0, z: 0 };
+                        firstSample = true; gravity = { x: 0, y: 0, z: 0 }; lastRaw = { x: 0, y: 0, z: 0 }; hasReceivedData = false;
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
                     } else { actualStartDAQ(simMode); }
                 }
@@ -1223,7 +1239,7 @@
             simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
-            firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; rawPrev = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
+            firstSample = true; gravity = { x: 0, y: 0, z: 0 }; lastRaw = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
