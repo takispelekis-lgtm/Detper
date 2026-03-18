@@ -360,6 +360,7 @@
         let isPaused = false;
         let isWaiting = false;
         let isWaitingForPickup = false;
+        let hasReceivedData = false; // ΝΕΟ: Ελέγχει αν το κινητό ξύπνησε πραγματικά τον αισθητήρα
         let pickupBaseline = { x: 0, y: 0, z: 0 };
         let daqIntervalId;
         let animIdTime;
@@ -577,11 +578,21 @@
                 let driftZ = Math.sin(2 * Math.PI * 0.8 * simTime) * 0.002;
                 x = nX + peakX; y = nY + peakY; z = nZ + driftZ;
             } else {
+                // ΝΕΟ: Αν το κινητό δεν έχει στείλει ακόμα τίποτα, δεν ξεκινάμε το φίλτρο για να μην πάρει "καρφί"
+                if (!hasReceivedData) return;
+
                 let rawX = hwData.x * 100; let rawY = hwData.y * 100; let rawZ = hwData.z * 100;
-                if (firstSample) { rawPrev = { x: rawX, y: rawY, z: rawZ }; hpfState = { x: 0, y: 0, z: 0 }; firstSample = false; }
+                
+                if (firstSample) { 
+                    rawPrev = { x: rawX, y: rawY, z: rawZ }; 
+                    hpfState = { x: 0, y: 0, z: 0 }; 
+                    firstSample = false; 
+                }
+                
                 hpfState.x = hpfAlpha * (hpfState.x + rawX - rawPrev.x);
                 hpfState.y = hpfAlpha * (hpfState.y + rawY - rawPrev.y);
                 hpfState.z = hpfAlpha * (hpfState.z + rawZ - rawPrev.z);
+                
                 rawPrev = { x: rawX, y: rawY, z: rawZ };
                 x = hpfState.x; y = hpfState.y; z = hpfState.z;
                 
@@ -746,24 +757,29 @@
 
         // --- HARDWARE SENSOR ---
         function handleMotion(event) {
-            // FIX: Αναγκάζουμε το σύστημα να διαβάσει τη συνολική επιτάχυνση με τη βαρύτητα,
-            // παρακάμπτοντας έτσι το Noise Gate / Deadband του λειτουργικού (που μηδενίζει το event.acceleration).
-            const acc = event.accelerationIncludingGravity;
+            // ΝΕΟ: Απόλυτη προστασία από null events (που δημιουργούν καρφιά 981 gal στις χρονοσειρές)
+            let ax = null, ay = null, az = null;
             
-            if (acc) {
-                hwData.x = acc.x || 0; 
-                hwData.y = acc.y || 0; 
-                hwData.z = acc.z || 0;
+            if (event.accelerationIncludingGravity && event.accelerationIncludingGravity.x !== null) {
+                ax = event.accelerationIncludingGravity.x;
+                ay = event.accelerationIncludingGravity.y;
+                az = event.accelerationIncludingGravity.z;
+            } else if (event.acceleration && event.acceleration.x !== null) {
+                ax = event.acceleration.x;
+                ay = event.acceleration.y;
+                az = event.acceleration.z;
+            }
+
+            if (ax !== null) {
+                hwData.x = ax; 
+                hwData.y = ay; 
+                hwData.z = az;
+                hasReceivedData = true; // Το κινητό έστειλε την πρώτη έγκυρη τιμή, μπορούμε να ξεκινήσουμε το HPF
                 
                 if (isWaitingForPickup) {
                     let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
                     if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) dismissCompletedOverlay();
                 }
-            } else if (event.acceleration) {
-                // Fallback αν το κινητό δεν δίνει Gravity (σπάνιο)
-                hwData.x = event.acceleration.x || 0; 
-                hwData.y = event.acceleration.y || 0; 
-                hwData.z = event.acceleration.z || 0;
             }
         }
 
@@ -819,6 +835,8 @@
             if (!isRunning && globalPlotData.length === 0) return;
             const w = freqCanvas.width; const h = freqCanvas.height; 
             const marginB = 20; const topMargin = 30; 
+            const drawH = Math.max(1, h - marginB - topMargin); // Ασφάλεια για το ύψος κατά το resize
+            
             ctxFreq.clearRect(0, 0, w, h);
             
             if(globalPlotData.length === 0) return; 
@@ -845,15 +863,20 @@
                     }
                 });
 
-                if (maxRat === -Infinity || maxRat < 0.1) maxRat = 10;
-                if (minRat === Infinity) minRat = 0.5;
+                if (maxRat === -Infinity || isNaN(maxRat)) maxRat = 10;
+                if (minRat === Infinity || isNaN(minRat)) minRat = 0.5;
                 
                 maxRat = Math.max(2, maxRat * 1.2); 
                 
+                // ΝΕΟ: Αποτροπή διαίρεσης με το μηδέν αν το H/V είναι απόλυτη ευθεία!
+                if (maxRat - minRat < 1e-5) { maxRat += 1.0; minRat = Math.max(0.1, minRat - 1.0); }
+                
                 if (isLog) {
-                    minRat = minRat / 1.5; 
-                    if (minRat >= maxRat) minRat = maxRat / 10; 
-                } else { minRat = 0; }
+                    if (minRat <= 0) minRat = 0.1;
+                    if (maxRat <= minRat) maxRat = minRat * 10;
+                } else { 
+                    if (minRat < 0) minRat = 0; 
+                }
             }
 
             if (hasRaw) {
@@ -866,27 +889,38 @@
                     if(chkFreqY.checked) { maxRaw = Math.max(maxRaw, p.sy); minRaw = Math.min(minRaw, safeLogMin(p.sy)); }
                     if(chkFreqZ.checked) { maxRaw = Math.max(maxRaw, p.sz); minRaw = Math.min(minRaw, safeLogMin(p.sz)); }
                 });
-                if (maxRaw === -Infinity) maxRaw = 0.1;
-                if (minRaw === Infinity) minRaw = 0.001;
+                if (maxRaw === -Infinity || isNaN(maxRaw)) maxRaw = 0.1;
+                if (minRaw === Infinity || isNaN(minRaw)) minRaw = 0.001;
+                
                 maxRaw *= 1.5; 
+                
+                // ΝΕΟ: Αποτροπή διαίρεσης με το μηδέν (NaN) αν ο αισθητήρας επιστρέφει ακριβώς 0!
+                if (maxRaw - minRaw < 1e-5) { maxRaw += 0.01; minRaw = Math.max(0.001, minRaw - 0.01); }
+
                 if (isLog) {
-                    minRaw = minRaw / 1.5; 
-                    if (minRaw >= maxRaw) minRaw = maxRaw / 10; 
-                } else { minRaw = 0; }
+                    if (minRaw <= 0) minRaw = 1e-4; 
+                    if (maxRaw <= minRaw) maxRaw = minRaw * 10;
+                } else { 
+                    if (minRaw < 0) minRaw = 0; 
+                }
             }
 
             const logMaxRat = isLog ? Math.log10(maxRat) : 0; const logMinRat = isLog ? Math.log10(minRat) : 0;
             const logMaxRaw = isLog ? Math.log10(maxRaw) : 0; const logMinRaw = isLog ? Math.log10(minRaw) : 0;
 
             const getYRat = (val) => {
-                let safeVal = Math.max(val, minRat); safeVal = Math.min(safeVal, maxRat);
-                if (!isLog) { return h - marginB - ((safeVal - minRat) / (maxRat - minRat)) * (h - marginB - topMargin); } 
-                else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRat) / (logMaxRat - logMinRat)) * (h - marginB - topMargin); }
+                let safeVal = val;
+                if (isNaN(safeVal)) safeVal = minRat;
+                safeVal = Math.max(safeVal, minRat); safeVal = Math.min(safeVal, maxRat);
+                if (!isLog) { return h - marginB - ((safeVal - minRat) / (maxRat - minRat)) * drawH; } 
+                else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRat) / (logMaxRat - logMinRat)) * drawH; }
             };
             const getYRaw = (val) => {
-                let safeVal = Math.max(val, minRaw); safeVal = Math.min(safeVal, maxRaw);
-                if (!isLog) { return h - marginB - ((safeVal - minRaw) / (maxRaw - minRaw)) * (h - marginB - topMargin); } 
-                else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRaw) / (logMaxRaw - logMinRaw)) * (h - marginB - topMargin); }
+                let safeVal = val;
+                if (isNaN(safeVal)) safeVal = minRaw;
+                safeVal = Math.max(safeVal, minRaw); safeVal = Math.min(safeVal, maxRaw);
+                if (!isLog) { return h - marginB - ((safeVal - minRaw) / (maxRaw - minRaw)) * drawH; } 
+                else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRaw) / (logMaxRaw - logMinRaw)) * drawH; }
             };
 
             ctxFreq.save();
@@ -894,14 +928,14 @@
             let xDivs = 10; for (let i = 1; i < xDivs; i++) { let x = (w / xDivs) * i; ctxFreq.moveTo(x, topMargin); ctxFreq.lineTo(x, h - marginB); }
             let yDivs = 4;
             for (let i = 0; i <= yDivs; i++) {
-                let y = h - marginB - (i / yDivs) * (h - marginB - topMargin);
+                let y = h - marginB - (i / yDivs) * drawH;
                 ctxFreq.moveTo(0, y); ctxFreq.lineTo(w, y);
             }
             ctxFreq.stroke(); 
 
             ctxFreq.font = '10px sans-serif';
             for (let i = 0; i <= yDivs; i++) {
-                let y = h - marginB - (i / yDivs) * (h - marginB - topMargin);
+                let y = h - marginB - (i / yDivs) * drawH;
                 if (hasRat) {
                     let vRat = isLog ? Math.pow(10, logMinRat + (logMaxRat - logMinRat) * (i / yDivs)) : minRat + (maxRat - minRat) * (i / yDivs);
                     ctxFreq.fillStyle = 'rgba(168, 85, 247, 0.8)'; ctxFreq.textAlign = 'right'; ctxFreq.fillText(vRat.toFixed(1), w - 5, y - 4);
@@ -914,7 +948,7 @@
             ctxFreq.restore();
 
             ctxFreq.save();
-            ctxFreq.beginPath(); ctxFreq.rect(0, topMargin, w, h - marginB - topMargin); ctxFreq.clip(); 
+            ctxFreq.beginPath(); ctxFreq.rect(0, topMargin, w, drawH); ctxFreq.clip(); 
 
             if (chkSigma.checked && chkRatHV.checked) {
                 ctxFreq.lineWidth = 1.5; ctxFreq.strokeStyle = '#ef4444'; ctxFreq.setLineDash([5, 5]); 
@@ -1180,6 +1214,9 @@
 
         function actualStartDAQ(simMode) {
             isSimulating = simMode; isPaused = false;
+            
+            if (simMode) { hasReceivedData = true; } else { hasReceivedData = false; }
+            
             timeBuffer = []; fftBufferX = []; fftBufferY = []; fftBufferZ = [];
             specHistoryX = []; specHistoryY = []; specHistoryZ = [];
             baseSpecX = []; baseSpecY = []; baseSpecZ = [];
