@@ -441,7 +441,6 @@
                 expandIcons.forEach(i => i.classList.remove('hidden'));
                 collapseIcons.forEach(i => i.classList.add('hidden'));
             }
-            // Multi-trigger resize to beat browser rendering lags
             setTimeout(resizeCanvases, 10);
             setTimeout(resizeCanvases, 100);
             setTimeout(resizeCanvases, 300);
@@ -449,7 +448,6 @@
         btnFullscreenFreqMob.addEventListener('click', toggleFullscreen);
         btnFullscreenFreqDesk.addEventListener('click', toggleFullscreen);
 
-        // Click on the canvases to dismiss the "Pickup" message
         const dismissCompletedOverlay = () => {
             if (isWaitingForPickup) {
                 isWaitingForPickup = false;
@@ -603,7 +601,6 @@
 
             fftBufferX.push(x); fftBufferY.push(y); fftBufferZ.push(z);
 
-            // --- ΔΥΝΑΜΙΚΟ ΜΗΝΥΜΑ (ΒΛΕΠΕΙΣ ΝΑ ΓΕΜΙΖΕΙ ΤΟ BUFFER ΑΝΤΙ ΝΑ ΝΟΜΙΖΕΙΣ ΟΤΙ ΚΟΛΛΗΣΕ) ---
             if (globalPlotData.length === 0) {
                 let pct = Math.min(100, Math.round((fftBufferX.length / N) * 100));
                 overlayFreq.classList.remove('hidden');
@@ -637,7 +634,6 @@
                 const overlap = N / 2;
                 fftBufferX.splice(0, overlap); fftBufferY.splice(0, overlap); fftBufferZ.splice(0, overlap);
 
-                // --- AUTO PAUSE ---
                 if (chkAvg.checked && totalFramesCount === numAvg) {
                     isPaused = true; updatePauseUI(); releaseWakeLock();
                     isWaitingForPickup = true; pickupBaseline = { x: hwData.x, y: hwData.y, z: hwData.z };
@@ -750,13 +746,24 @@
 
         // --- HARDWARE SENSOR ---
         function handleMotion(event) {
-            const acc = event.acceleration || event.accelerationIncludingGravity;
+            // FIX: Αναγκάζουμε το σύστημα να διαβάσει τη συνολική επιτάχυνση με τη βαρύτητα,
+            // παρακάμπτοντας έτσι το Noise Gate / Deadband του λειτουργικού (που μηδενίζει το event.acceleration).
+            const acc = event.accelerationIncludingGravity;
+            
             if (acc) {
-                hwData.x = acc.x || 0; hwData.y = acc.y || 0; hwData.z = acc.z || 0;
+                hwData.x = acc.x || 0; 
+                hwData.y = acc.y || 0; 
+                hwData.z = acc.z || 0;
+                
                 if (isWaitingForPickup) {
                     let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
                     if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) dismissCompletedOverlay();
                 }
+            } else if (event.acceleration) {
+                // Fallback αν το κινητό δεν δίνει Gravity (σπάνιο)
+                hwData.x = event.acceleration.x || 0; 
+                hwData.y = event.acceleration.y || 0; 
+                hwData.z = event.acceleration.z || 0;
             }
         }
 
@@ -807,14 +814,14 @@
             animIdTime = requestAnimationFrame(drawTime);
         }
 
-        // --- DRAWING FREQ (WITH AUTO-SCALE & Y-AXIS LABELS) ---
+        // --- DRAWING FREQ ---
         function drawFreq() {
             if (!isRunning && globalPlotData.length === 0) return;
             const w = freqCanvas.width; const h = freqCanvas.height; 
-            const marginB = 20; const topMargin = 30; // Περιθώρια για να μην χτυπάει το γράφημα στα γράμματα
+            const marginB = 20; const topMargin = 30; 
             ctxFreq.clearRect(0, 0, w, h);
             
-            if(globalPlotData.length === 0) return; // Όταν είναι άδειο, απλά δείχνει το loading overlay
+            if(globalPlotData.length === 0) return; 
 
             let hasRaw = chkFreqX.checked || chkFreqY.checked || chkFreqZ.checked;
             let hasRat = chkRatX.checked || chkRatY.checked || chkRatHV.checked;
@@ -828,7 +835,7 @@
                 globalPlotData.forEach((p, i) => {
                     const freq = i * df;
                     if (freq < fMin || freq > fMax) return; 
-                    if (freq < 0.2) return; // Αγνοούμε συχνότητες < 0.2Hz για να μην τρελαθεί το Auto-Scale
+                    if (freq < 0.2) return; 
                     
                     if(chkRatX.checked) { maxRat = Math.max(maxRat, p.ratX); minRat = Math.min(minRat, safeLogMin(p.ratX)); }
                     if(chkRatY.checked) { maxRat = Math.max(maxRat, p.ratY); minRat = Math.min(minRat, safeLogMin(p.ratY)); }
@@ -841,7 +848,7 @@
                 if (maxRat === -Infinity || maxRat < 0.1) maxRat = 10;
                 if (minRat === Infinity) minRat = 0.5;
                 
-                maxRat = Math.max(2, maxRat * 1.2); // Tουλάχιστον 2 και αφήνουμε +20% "αέρα" οπτικά
+                maxRat = Math.max(2, maxRat * 1.2); 
                 
                 if (isLog) {
                     minRat = minRat / 1.5; 
@@ -872,17 +879,16 @@
             const logMaxRaw = isLog ? Math.log10(maxRaw) : 0; const logMinRaw = isLog ? Math.log10(minRaw) : 0;
 
             const getYRat = (val) => {
-                let safeVal = Math.max(val, minRat); safeVal = Math.min(safeVal, maxRat); // Clamping (Περιορισμός)
+                let safeVal = Math.max(val, minRat); safeVal = Math.min(safeVal, maxRat);
                 if (!isLog) { return h - marginB - ((safeVal - minRat) / (maxRat - minRat)) * (h - marginB - topMargin); } 
                 else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRat) / (logMaxRat - logMinRat)) * (h - marginB - topMargin); }
             };
             const getYRaw = (val) => {
-                let safeVal = Math.max(val, minRaw); safeVal = Math.min(safeVal, maxRaw); // Clamping (Περιορισμός)
+                let safeVal = Math.max(val, minRaw); safeVal = Math.min(safeVal, maxRaw);
                 if (!isLog) { return h - marginB - ((safeVal - minRaw) / (maxRaw - minRaw)) * (h - marginB - topMargin); } 
                 else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRaw) / (logMaxRaw - logMinRaw)) * (h - marginB - topMargin); }
             };
 
-            // --- ΣΧΕΔΙΑΣΜΟΣ GRID ΚΑΙ ΕΤΙΚΕΤΩΝ ΑΞΟΝΑ Y (ΖΩΝΤΑΝΑ!) ---
             ctxFreq.save();
             ctxFreq.strokeStyle = 'rgba(134, 239, 172, 0.3)'; ctxFreq.lineWidth = 0.5; ctxFreq.setLineDash([4, 4]); ctxFreq.beginPath();
             let xDivs = 10; for (let i = 1; i < xDivs; i++) { let x = (w / xDivs) * i; ctxFreq.moveTo(x, topMargin); ctxFreq.lineTo(x, h - marginB); }
@@ -907,9 +913,8 @@
             }
             ctxFreq.restore();
 
-            // --- ΣΧΕΔΙΑΣΜΟΣ ΚΑΜΠΥΛΩΝ (CLIPPED) ---
             ctxFreq.save();
-            ctxFreq.beginPath(); ctxFreq.rect(0, topMargin, w, h - marginB - topMargin); ctxFreq.clip(); // Δε ζωγραφίζουμε εκτός περιοχής!
+            ctxFreq.beginPath(); ctxFreq.rect(0, topMargin, w, h - marginB - topMargin); ctxFreq.clip(); 
 
             if (chkSigma.checked && chkRatHV.checked) {
                 ctxFreq.lineWidth = 1.5; ctxFreq.strokeStyle = '#ef4444'; ctxFreq.setLineDash([5, 5]); 
@@ -952,7 +957,7 @@
             if (chkFreqY.checked) drawChannel('sy', '#22c55e', 1.5, true);
             if (chkFreqZ.checked) drawChannel('sz', '#3b82f6', 1.5, true);
 
-            ctxFreq.restore(); // ΤΕΛΟΣ ΚΟΠΗΣ
+            ctxFreq.restore(); 
 
             let statsText = `Ntot = ${totalFramesCount}`;
             if (chkAvg.checked && specHistoryX.length > 0) statsText += ` | Navg = ${specHistoryX.length}`;
@@ -974,7 +979,6 @@
             ctxFreq.fillText(fMin.toFixed(1) + ' Hz', 5, h - 8);
             ctxFreq.textAlign = 'right'; ctxFreq.fillText(fMax.toFixed(1) + ' Hz', w - 5, h - 8);
 
-            // --- CURSOR ---
             if (cursorBin !== null && cursorBin >= 0 && cursorBin < globalPlotData.length) {
                 const freq = cursorBin * df;
                 if (freq >= fMin && freq <= fMax) {
@@ -1111,7 +1115,6 @@
                 isPanning = true; startX = e.touches[0].clientX; startFMin = fMin; startFMax = fMax;
             }
         }, {passive: false});
-
 
         // --- CONTROLS & COUNTDOWN LOGIC ---
         function toggleUI(running) {
