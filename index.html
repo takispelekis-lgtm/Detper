@@ -376,9 +376,10 @@
 
         let currentWindow = { array: [], correction: 1.0 };
 
-        // Hardware sensor latest data 
+        // Hardware sensor & DSP
         let pickupBaseline = { x: 0, y: 0, z: 0 };
         let hwData = { x: 0, y: 0, z: 0 };
+        let medianBuffer = { x: [], y: [], z: [] };
         let simTime = 0;
         let totalFramesCount = 0;
 
@@ -386,16 +387,7 @@
         let fMin = 0;
         let fMax = fmax;
 
-        // ΟΛΙΚΗ ΕΠΑΝΑΦΟΡΑ ΣΤΗΝ ΕΠΑΓΓΕΛΜΑΤΙΚΗ ΛΥΣΗ
-        // 1. Στατική βαθμονόμηση του διανύσματος βαρύτητας (όσο το κινητό είναι στο πάτωμα στην αντίστροφη μέτρηση)
-        let gravityBaseline = { x: 0, y: 0, z: 0 };
-        let isCalibrating = false;
-        let calibData = { x: 0, y: 0, z: 0, count: 0 };
-        
-        // 2. Median Filter Buffer (Ο απόλυτος "καταστροφέας" των Spikes)
-        let medianBuffer = { x: [], y: [], z: [] };
-
-        // LPF State (Anti-Aliasing μόνο)
+        // LPF State
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
 
@@ -572,14 +564,13 @@
         function handleMotion(event) {
             let ax = null, ay = null, az = null;
             
-            // Για να πιάσουμε τα microtremors χωρίς να κόβονται από το λειτουργικό,
-            // ζητάμε ΑΠΑΡΑΙΤΗΤΩΣ την ακατέργαστη επιτάχυνση που περιλαμβάνει τη βαρύτητα.
+            // ΠΑΝΤΑ Ακατέργαστο Σήμα για να διαβάζει τα Microtremors 
+            // (Παράκαμψη του Android Deadband/Noise Gate)
             if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
                 ax = event.accelerationIncludingGravity.x;
                 ay = event.accelerationIncludingGravity.y;
                 az = event.accelerationIncludingGravity.z;
             } else if (event.acceleration && typeof event.acceleration.x === 'number') {
-                // Εναλλακτική μόνο αν η συσκευή είναι παλιά
                 ax = event.acceleration.x;
                 ay = event.acceleration.y;
                 az = event.acceleration.z;
@@ -591,15 +582,6 @@
                 hwData.z = az;
                 hasReceivedData = true;
 
-                // Όσο μετράει αντίστροφα 4, 3, 2, 1 (και το κινητό είναι στο πάτωμα), 
-                // μαζεύουμε δεδομένα για να βρούμε το απόλυτο, ακίνητο διάνυσμα της βαρύτητας.
-                if (isCalibrating) {
-                    calibData.x += ax;
-                    calibData.y += ay;
-                    calibData.z += az;
-                    calibData.count++;
-                }
-
                 if (isWaitingForPickup) {
                     let dx = (ax * 100) - pickupBaseline.x; let dy = (ay * 100) - pickupBaseline.y; let dz = (az * 100) - pickupBaseline.z;
                     if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 150) dismissCompletedOverlay();
@@ -607,7 +589,7 @@
             }
         }
 
-        // --- DAQ LOGIC ---
+        // --- DAQ LOGIC (DYNAMIC DEMEAN & DESPIKER) ---
         function daqTick() {
             if (!isRunning || isPaused || isWaiting) return;
 
@@ -624,15 +606,11 @@
             } else {
                 if (!hasReceivedData) return;
 
-                // Αφαιρούμε τη Στατική Βαρύτητα ΠΟΥ ΚΛΕΙΔΩΣΑΜΕ κατά την αντίστροφη μέτρηση.
-                // ΚΑΝΕΝΑ φίλτρο. ΚΑΜΙΑ καμπύλη. Απόλυτο μηδέν!
-                let rawX = (hwData.x - gravityBaseline.x) * 100; // gal
-                let rawY = (hwData.y - gravityBaseline.y) * 100;
-                let rawZ = (hwData.z - gravityBaseline.z) * 100;
+                let rawX = hwData.x * 100; // gal
+                let rawY = hwData.y * 100;
+                let rawZ = hwData.z * 100;
 
-                // 5-Point Median Filter (Δολοφόνος των Samsung Spikes)
-                // Μαζεύει τις τελευταίες 5 τιμές. Αν έρθει ένα τρελό καρφί, 
-                // απλά το αγνοεί και κρατάει τη μεσαία φυσιολογική τιμή.
+                // 1. Median Filter (Εξαφανίζει τα Samsung Spikes ακαριαία, χωρίς καμπύλες)
                 medianBuffer.x.push(rawX); if (medianBuffer.x.length > 5) medianBuffer.x.shift();
                 medianBuffer.y.push(rawY); if (medianBuffer.y.length > 5) medianBuffer.y.shift();
                 medianBuffer.z.push(rawZ); if (medianBuffer.z.length > 5) medianBuffer.z.shift();
@@ -644,9 +622,6 @@
                 } else {
                     x = rawX; y = rawY; z = rawZ;
                 }
-                
-                const liveReadout = document.getElementById('liveSensorData');
-                if (liveReadout) liveReadout.textContent = `[Microtremor gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
             // Anti-Aliasing LPF
@@ -657,10 +632,25 @@
                 x = lpfState.x; y = lpfState.y; z = lpfState.z;
             } else { lpfState = {x, y, z}; }
 
+            // Κρατάμε τα ακατέργαστα (με βαρύτητα) δεδομένα στον buffer. 
+            // Ο Μηδενισμός θα γίνει ΔΥΝΑΜΙΚΑ κατά τη σχεδίαση.
             timeBuffer.push({x, y, z});
             if (timeBuffer.length > maxTimeDisplay) timeBuffer.shift();
 
             fftBufferX.push(x); fftBufferY.push(y); fftBufferZ.push(z);
+
+            // Υπολογισμός Μέσου Όρου τρέχοντος παραθύρου για το κείμενο (ώστε να δείχνει ~0)
+            let mX = 0, mY = 0, mZ = 0;
+            let tLen = timeBuffer.length;
+            if (tLen > 0) {
+                for(let i=0; i<tLen; i++){ mX += timeBuffer[i].x; mY += timeBuffer[i].y; mZ += timeBuffer[i].z; }
+                mX /= tLen; mY /= tLen; mZ /= tLen;
+            }
+
+            if (!isSimulating) {
+                const liveReadout = document.getElementById('liveSensorData');
+                if (liveReadout) liveReadout.textContent = `[Microtremor gal: X:${(x - mX).toFixed(3)} Y:${(y - mY).toFixed(3)} Z:${(z - mZ).toFixed(3)}]`;
+            }
 
             if (globalPlotData.length === 0) {
                 let pct = Math.min(100, Math.round((fftBufferX.length / N) * 100));
@@ -676,9 +666,16 @@
 
             if (fftBufferX.length >= N) {
                 totalFramesCount++; 
-                let wx = fftBufferX.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
-                let wy = fftBufferY.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
-                let wz = fftBufferZ.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
+                
+                // 2. ΔΥΝΑΜΙΚΗ ΑΦΑΙΡΕΣΗ ΒΑΡΥΤΗΤΑΣ (Detrend) ΜΟΝΟ ΓΙΑ ΤΟ FFT.
+                // Αυτό εγγυάται ότι το DC Component πάει ακριβώς στο 0 χωρίς να αλλοιώνει συχνότητες.
+                let fMeanX = 0, fMeanY = 0, fMeanZ = 0;
+                for(let i=0; i<N; i++){ fMeanX += fftBufferX[i]; fMeanY += fftBufferY[i]; fMeanZ += fftBufferZ[i]; }
+                fMeanX /= N; fMeanY /= N; fMeanZ /= N;
+
+                let wx = fftBufferX.map((v, i) => (v - fMeanX) * currentWindow.array[i] * currentWindow.correction);
+                let wy = fftBufferY.map((v, i) => (v - fMeanY) * currentWindow.array[i] * currentWindow.correction);
+                let wz = fftBufferZ.map((v, i) => (v - fMeanZ) * currentWindow.array[i] * currentWindow.correction);
 
                 let rawSpecX = computeFFTMagnitude(wx); let rawSpecY = computeFFTMagnitude(wy); let rawSpecZ = computeFFTMagnitude(wz);
                 let numAvg = parseInt(inpNumAvg.value) || 20;
@@ -822,27 +819,35 @@
 
             if (timeBuffer.length === 0) { animIdTime = requestAnimationFrame(drawTime); return; }
 
-            let maxVal = 0.01; 
+            // 3. ΔΥΝΑΜΙΚΗ ΑΦΑΙΡΕΣΗ ΜΕΣΟΥ ΟΡΟΥ (MΟΝΟ ΓΙΑ ΤΗ ΣΧΕΔΙΑΣΗ)
+            // Υπολογίζει ακαριαία το νέο κέντρο. Δεν δημιουργεί ΚΑΜΙΑ καμπύλη όταν χτυπάς το κινητό!
+            let mX = 0, mY = 0, mZ = 0;
+            let tLen = timeBuffer.length;
+            for(let i=0; i<tLen; i++){ mX += timeBuffer[i].x; mY += timeBuffer[i].y; mZ += timeBuffer[i].z; }
+            mX /= tLen; mY /= tLen; mZ /= tLen;
+
+            let maxVal = 0.05; // Ελάχιστη ευαισθησία κλίμακας για να βλέπεις τον μικροθόρυβο (microtremors)
             timeBuffer.forEach(p => {
-                if(chkTimeX.checked) maxVal = Math.max(maxVal, Math.abs(p.x));
-                if(chkTimeY.checked) maxVal = Math.max(maxVal, Math.abs(p.y));
-                if(chkTimeZ.checked) maxVal = Math.max(maxVal, Math.abs(p.z));
+                if(chkTimeX.checked) maxVal = Math.max(maxVal, Math.abs(p.x - mX));
+                if(chkTimeY.checked) maxVal = Math.max(maxVal, Math.abs(p.y - mY));
+                if(chkTimeZ.checked) maxVal = Math.max(maxVal, Math.abs(p.z - mZ));
             });
             maxVal *= 1.2; 
             const scaleY = (h / 2.2) / maxVal; const stepX = w / maxTimeDisplay;
 
-            const drawChannel = (key, color) => {
+            const drawChannel = (key, meanVal, color) => {
                 ctxTime.beginPath(); ctxTime.strokeStyle = color; ctxTime.lineWidth = 1.5;
                 timeBuffer.forEach((p, i) => {
-                    const px = i * stepX; const py = midY - (p[key] * scaleY);
+                    // Αφαιρούμε τον μέσο όρο ακαριαία!
+                    const px = i * stepX; const py = midY - ((p[key] - meanVal) * scaleY);
                     if (i === 0) ctxTime.moveTo(px, py); else ctxTime.lineTo(px, py);
                 });
                 ctxTime.stroke();
             };
 
-            if (chkTimeX.checked) drawChannel('x', '#ef4444');
-            if (chkTimeY.checked) drawChannel('y', '#22c55e');
-            if (chkTimeZ.checked) drawChannel('z', '#3b82f6');
+            if (chkTimeX.checked) drawChannel('x', mX, '#ef4444');
+            if (chkTimeY.checked) drawChannel('y', mY, '#22c55e');
+            if (chkTimeZ.checked) drawChannel('z', mZ, '#3b82f6');
 
             ctxTime.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxTime.font = '10px sans-serif'; ctxTime.textAlign = 'left';
             ctxTime.fillText(`±${maxVal.toFixed(3)} gal`, 5, 12); 
@@ -1215,28 +1220,9 @@
 
             countdownInterval = setInterval(() => {
                 count--;
-                
-                // Από το δευτερόλεπτο 4 και μετά (που το κινητό είναι στο πάτωμα), μαζεύουμε τη βαρύτητα
-                if (count === 4 && !simMode) {
-                    isCalibrating = true;
-                    calibData = { x: 0, y: 0, z: 0, count: 0 };
-                }
-
                 if (count > 0) { updateMsg(count); } 
                 else {
                     clearInterval(countdownInterval); isWaiting = false; btnPause.disabled = false;
-                    
-                    // Υπολογισμός Στατικής Βαρύτητας
-                    if (isCalibrating) {
-                        isCalibrating = false;
-                        if (calibData.count > 0) {
-                            gravityBaseline.x = calibData.x / calibData.count;
-                            gravityBaseline.y = calibData.y / calibData.count;
-                            gravityBaseline.z = calibData.z / calibData.count;
-                        } else {
-                            gravityBaseline = { x: 0, y: 0, z: 0 };
-                        }
-                    }
 
                     if (isResume) {
                         isPaused = false; updatePauseUI();
