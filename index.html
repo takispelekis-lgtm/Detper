@@ -215,9 +215,7 @@
                         </div>
                     </div>
                     <div class="flex-1 w-full bg-slate-900 rounded-lg overflow-hidden relative border border-slate-800">
-                        <div id="overlayTime" class="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10 backdrop-blur-md">
-                            <span class="text-slate-400 text-sm font-medium">Εκκρεμεί έναρξη λήψης...</span>
-                        </div>
+                        <div id="overlayTime" class="absolute inset-0 flex items-center justify-center z-10 pointer-events-none hidden"></div>
                         <canvas id="timeCanvas" class="w-full h-full block"></canvas>
                     </div>
                 </div>
@@ -251,9 +249,7 @@
                         </div>
                     </div>
                     <div class="flex-1 w-full bg-slate-900 rounded-lg overflow-hidden relative border border-slate-800">
-                        <div id="overlayFreq" class="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10 backdrop-blur-md">
-                            <span class="text-slate-400 text-sm font-medium">Αναμονή για γέμισμα buffer (Frame Size)...</span>
-                        </div>
+                        <div id="overlayFreq" class="absolute inset-0 flex items-center justify-center z-10 pointer-events-none hidden"></div>
                         <canvas id="freqCanvas" class="w-full h-full block cursor-crosshair"></canvas>
                     </div>
                 </div>
@@ -408,17 +404,11 @@
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                }
-            } catch (err) {
-                console.log('Wake Lock Error:', err);
-            }
+                if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); }
+            } catch (err) { console.log('Wake Lock Error:', err); }
         }
         function releaseWakeLock() {
-            if (wakeLock !== null) {
-                wakeLock.release().then(() => { wakeLock = null; });
-            }
+            if (wakeLock !== null) { wakeLock.release().then(() => { wakeLock = null; }); }
         }
         document.addEventListener('visibilitychange', async () => {
             if (wakeLock !== null && document.visibilityState === 'visible' && isRunning && !isPaused && !isWaiting) {
@@ -451,11 +441,15 @@
                 expandIcons.forEach(i => i.classList.remove('hidden'));
                 collapseIcons.forEach(i => i.classList.add('hidden'));
             }
-            setTimeout(resizeCanvases, 50);
+            // Multi-trigger resize to beat browser rendering lags
+            setTimeout(resizeCanvases, 10);
+            setTimeout(resizeCanvases, 100);
+            setTimeout(resizeCanvases, 300);
         }
         btnFullscreenFreqMob.addEventListener('click', toggleFullscreen);
         btnFullscreenFreqDesk.addEventListener('click', toggleFullscreen);
 
+        // Click on the canvases to dismiss the "Pickup" message
         const dismissCompletedOverlay = () => {
             if (isWaitingForPickup) {
                 isWaitingForPickup = false;
@@ -463,24 +457,19 @@
                 overlayFreq.classList.add('hidden');
             }
         };
-        overlayTime.addEventListener('click', dismissCompletedOverlay);
-        overlayFreq.addEventListener('click', dismissCompletedOverlay);
-        overlayTime.addEventListener('touchstart', dismissCompletedOverlay);
-        overlayFreq.addEventListener('touchstart', dismissCompletedOverlay);
+        timeCanvas.addEventListener('click', dismissCompletedOverlay);
+        freqCanvas.addEventListener('click', dismissCompletedOverlay);
+        timeCanvas.addEventListener('touchstart', dismissCompletedOverlay, {passive: true});
+        freqCanvas.addEventListener('touchstart', dismissCompletedOverlay, {passive: true});
 
         function calculateWindowCoeffs(type, n) {
             let w = new Float32Array(n);
             let sum = 0;
             for (let i = 0; i < n; i++) {
-                if (type === 'hanning') {
-                    w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)));
-                } else if (type === 'hamming') {
-                    w[i] = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (n - 1));
-                } else if (type === 'blackman') {
-                    w[i] = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (n - 1));
-                } else { 
-                    w[i] = 1.0;
-                }
+                if (type === 'hanning') w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)));
+                else if (type === 'hamming') w[i] = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (n - 1));
+                else if (type === 'blackman') w[i] = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (n - 1));
+                else w[i] = 1.0;
                 sum += w[i];
             }
             return { array: w, correction: n / sum };
@@ -491,40 +480,27 @@
             fmax = parseFloat(inpFmax.value) || 25;
             if(fmax < 1) fmax = 1;
             
-            fs = 2 * fmax;
-            dt = 1 / fs;
-            N = parseInt(inpN.value);
-            
-            txtDt.textContent = dt.toFixed(4);
-            txtFs.textContent = fs.toFixed(0);
-            txtTr.textContent = (N * dt).toFixed(2);
-            df = fs / N; 
-            txtDf.textContent = df.toFixed(3);
-
+            fs = 2 * fmax; dt = 1 / fs; N = parseInt(inpN.value);
+            txtDt.textContent = dt.toFixed(4); txtFs.textContent = fs.toFixed(0);
+            txtTr.textContent = (N * dt).toFixed(2); df = fs / N; txtDf.textContent = df.toFixed(3);
             maxTimeDisplay = fs * 5;
 
-            if (fmax !== oldFmax) {
-                fMin = 0; fMax = fmax;
-            }
+            if (fmax !== oldFmax) { fMin = 0; fMax = fmax; }
 
-            // Υπολογισμός φίλτρων (LPF & HPF)
             lpfAlpha = dt / ((1 / (2 * Math.PI * fmax)) + dt);
-            
-            let hpfCutoff = 0.1; // 0.1 Hz για αφαίρεση DC & Βαρύτητας
+            let hpfCutoff = 0.1; 
             let rcHPF = 1 / (2 * Math.PI * hpfCutoff);
             hpfAlpha = rcHPF / (rcHPF + dt);
-
             currentWindow = calculateWindowCoeffs(inpWindow.value, N);
         }
-        inpFmax.addEventListener('change', updateDaqParams);
-        inpN.addEventListener('change', updateDaqParams);
-        inpWindow.addEventListener('change', updateDaqParams);
+        inpFmax.addEventListener('change', updateDaqParams); inpN.addEventListener('change', updateDaqParams); inpWindow.addEventListener('change', updateDaqParams);
         updateDaqParams();
 
         function resizeCanvases() {
             [timeCanvas, freqCanvas].forEach(c => {
-                c.width = c.parentElement.clientWidth;
-                c.height = c.parentElement.clientHeight;
+                const rect = c.parentElement.getBoundingClientRect();
+                c.width = rect.width || 300; 
+                c.height = rect.height || 200;
             });
             drawTime();
             drawFreq();
@@ -534,48 +510,36 @@
 
         // --- MATH FUNCTIONS ---
         function computeFFTMagnitude(realArray) {
-            let n = realArray.length; 
-            let re = [...realArray];
-            let im = new Array(n).fill(0);
-
+            let n = realArray.length; let re = [...realArray]; let im = new Array(n).fill(0);
             for (let i = 0; i < n; i++) {
                 let rev = 0; let k = i; let bits = Math.log2(n);
                 for (let j = 0; j < bits; j++) { rev = (rev << 1) | (k & 1); k >>= 1; }
                 if (i < rev) { let tr = re[i]; re[i] = re[rev]; re[rev] = tr; }
             }
-
             for (let step = 2; step <= n; step *= 2) {
                 let angle = -2 * Math.PI / step;
-                let w_re_step = Math.cos(angle);
-                let w_im_step = Math.sin(angle);
+                let w_re_step = Math.cos(angle); let w_im_step = Math.sin(angle);
                 for (let i = 0; i < n; i += step) {
                     let w_re = 1, w_im = 0;
                     for (let j = 0; j < step / 2; j++) {
                         let t_re = w_re * re[i + j + step / 2] - w_im * im[i + j + step / 2];
                         let t_im = w_re * im[i + j + step / 2] + w_im * re[i + j + step / 2];
-                        re[i + j + step / 2] = re[i + j] - t_re;
-                        im[i + j + step / 2] = im[i + j] - t_im;
+                        re[i + j + step / 2] = re[i + j] - t_re; im[i + j + step / 2] = im[i + j] - t_im;
                         re[i + j] += t_re; im[i + j] += t_im;
                         let next_w_re = w_re * w_re_step - w_im * w_im_step;
-                        w_im = w_re * w_im_step + w_im * w_re_step;
-                        w_re = next_w_re;
+                        w_im = w_re * w_im_step + w_im * w_re_step; w_re = next_w_re;
                     }
                 }
             }
-
-            let mag = [];
-            for (let i = 0; i < n / 2; i++) mag.push(Math.sqrt(re[i]*re[i] + im[i]*im[i]) / (n/2));
+            let mag = []; for (let i = 0; i < n / 2; i++) mag.push(Math.sqrt(re[i]*re[i] + im[i]*im[i]) / (n/2));
             return mag;
         }
 
         function smoothArray(arr, windowSize = 5) {
-            let smoothed = [];
-            let half = Math.floor(windowSize / 2);
+            let smoothed = []; let half = Math.floor(windowSize / 2);
             for (let i = 0; i < arr.length; i++) {
                 let sum = 0, count = 0;
-                for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
-                    sum += arr[j]; count++;
-                }
+                for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) { sum += arr[j]; count++; }
                 smoothed.push(sum / count);
             }
             return smoothed;
@@ -583,30 +547,21 @@
 
         function getAverageSpectrum(historyArray) {
             if (historyArray.length === 0) return [];
-            let len = historyArray[0].length;
-            let avg = new Array(len).fill(0);
-            for (let i = 0; i < historyArray.length; i++) {
-                for (let j = 0; j < len; j++) avg[j] += historyArray[i][j];
-            }
+            let len = historyArray[0].length; let avg = new Array(len).fill(0);
+            for (let i = 0; i < historyArray.length; i++) { for (let j = 0; j < len; j++) avg[j] += historyArray[i][j]; }
             for (let j = 0; j < len; j++) avg[j] /= historyArray.length;
             return avg;
         }
 
         function applySmoothingAndUpdate() {
             if (baseSpecX.length === 0) return;
-            
             if (chkSmooth.checked) {
                 let pts = parseInt(inpSmoothPts.value) || 5;
-                specX = smoothArray(baseSpecX, pts); 
-                specY = smoothArray(baseSpecY, pts);
-                specZ = smoothArray(baseSpecZ, pts);
+                specX = smoothArray(baseSpecX, pts); specY = smoothArray(baseSpecY, pts); specZ = smoothArray(baseSpecZ, pts);
             } else {
                 specX = [...baseSpecX]; specY = [...baseSpecY]; specZ = [...baseSpecZ];
             }
-            
-            updatePlotData();
-            drawFreq();
-            populateTable();
+            updatePlotData(); drawFreq(); populateTable();
         }
 
         // --- DAQ LOGIC ---
@@ -617,141 +572,96 @@
 
             if (isSimulating) {
                 simTime += dt;
-                let nX = (Math.random() - 0.5) * 0.05;
-                let nY = (Math.random() - 0.5) * 0.05;
-                let nZ = (Math.random() - 0.5) * 0.05;
-                let buildUp = Math.min(totalFramesCount / 60, 1.0);
-                let amp = 0.016 * buildUp;
+                let nX = (Math.random() - 0.5) * 0.05; let nY = (Math.random() - 0.5) * 0.05; let nZ = (Math.random() - 0.5) * 0.05;
+                let buildUp = Math.min(totalFramesCount / 60, 1.0); let amp = 0.016 * buildUp;
                 let peakX = Math.sin(2 * Math.PI * 4.8 * simTime) * (amp * 0.3) + Math.sin(2 * Math.PI * 4.9 * simTime) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.0 * simTime) * amp + Math.sin(2 * Math.PI * 5.1 * simTime) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.2 * simTime) * (amp * 0.3);
                 let peakY = Math.cos(2 * Math.PI * 4.8 * simTime + 0.3) * (amp * 0.3) + Math.cos(2 * Math.PI * 4.9 * simTime + 1.2) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.0 * simTime + 0.5) * amp + Math.cos(2 * Math.PI * 5.1 * simTime + 2.1) * (amp * 0.7) + Math.sin(2 * Math.PI * 5.2 * simTime + 1.1) * (amp * 0.3);
                 let driftZ = Math.sin(2 * Math.PI * 0.8 * simTime) * 0.002;
                 x = nX + peakX; y = nY + peakY; z = nZ + driftZ;
             } else {
-                let rawX = hwData.x * 100; 
-                let rawY = hwData.y * 100; 
-                let rawZ = hwData.z * 100;
-
-                if (firstSample) {
-                    rawPrev = { x: rawX, y: rawY, z: rawZ };
-                    hpfState = { x: 0, y: 0, z: 0 };
-                    firstSample = false;
-                }
-
-                // HPF - Αφαίρεση Βαρύτητας & DC Offset
+                let rawX = hwData.x * 100; let rawY = hwData.y * 100; let rawZ = hwData.z * 100;
+                if (firstSample) { rawPrev = { x: rawX, y: rawY, z: rawZ }; hpfState = { x: 0, y: 0, z: 0 }; firstSample = false; }
                 hpfState.x = hpfAlpha * (hpfState.x + rawX - rawPrev.x);
                 hpfState.y = hpfAlpha * (hpfState.y + rawY - rawPrev.y);
                 hpfState.z = hpfAlpha * (hpfState.z + rawZ - rawPrev.z);
-                
                 rawPrev = { x: rawX, y: rawY, z: rawZ };
-
-                x = hpfState.x;
-                y = hpfState.y;
-                z = hpfState.z;
+                x = hpfState.x; y = hpfState.y; z = hpfState.z;
                 
                 const liveReadout = document.getElementById('liveSensorData');
-                if (liveReadout) {
-                    liveReadout.textContent = `[RAW m/s²: X:${hwData.x.toFixed(3)} Y:${hwData.y.toFixed(3)} Z:${hwData.z.toFixed(3)}]`;
-                }
+                if (liveReadout) liveReadout.textContent = `[RAW m/s²: X:${hwData.x.toFixed(3)} Y:${hwData.y.toFixed(3)} Z:${hwData.z.toFixed(3)}]`;
             }
 
-            // Anti-Aliasing LPF
             if (chkAntiAlias.checked) {
                 lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
                 lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
                 lpfState.z = lpfAlpha * z + (1 - lpfAlpha) * lpfState.z;
                 x = lpfState.x; y = lpfState.y; z = lpfState.z;
-            } else {
-                lpfState = {x, y, z}; 
-            }
+            } else { lpfState = {x, y, z}; }
 
             timeBuffer.push({x, y, z});
             if (timeBuffer.length > maxTimeDisplay) timeBuffer.shift();
 
-            fftBufferX.push(x);
-            fftBufferY.push(y);
-            fftBufferZ.push(z);
+            fftBufferX.push(x); fftBufferY.push(y); fftBufferZ.push(z);
+
+            // --- ΔΥΝΑΜΙΚΟ ΜΗΝΥΜΑ (ΒΛΕΠΕΙΣ ΝΑ ΓΕΜΙΖΕΙ ΤΟ BUFFER ΑΝΤΙ ΝΑ ΝΟΜΙΖΕΙΣ ΟΤΙ ΚΟΛΛΗΣΕ) ---
+            if (globalPlotData.length === 0) {
+                let pct = Math.min(100, Math.round((fftBufferX.length / N) * 100));
+                overlayFreq.classList.remove('hidden');
+                overlayFreq.innerHTML = `<div class="bg-slate-800/90 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-xl border border-slate-600 text-sm font-medium flex flex-col items-center gap-2">
+                    <svg class="animate-spin h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Συλλογή 1ου παραθύρου: <span class="text-blue-400 font-bold">${pct}%</span></span>
+                    <span class="text-xs text-slate-400">Διάρκεια (Tr): ${(N*dt).toFixed(2)} sec</span>
+                </div>`;
+            } else if (!isPaused && !isWaiting && !isWaitingForPickup) {
+                overlayFreq.classList.add('hidden');
+            }
 
             if (fftBufferX.length >= N) {
-                overlayFreq.classList.add('hidden');
                 totalFramesCount++; 
-                
                 let wx = fftBufferX.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
                 let wy = fftBufferY.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
                 let wz = fftBufferZ.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
 
-                let rawSpecX = computeFFTMagnitude(wx);
-                let rawSpecY = computeFFTMagnitude(wy);
-                let rawSpecZ = computeFFTMagnitude(wz);
-
+                let rawSpecX = computeFFTMagnitude(wx); let rawSpecY = computeFFTMagnitude(wy); let rawSpecZ = computeFFTMagnitude(wz);
                 let numAvg = parseInt(inpNumAvg.value) || 20;
 
                 if (chkAvg.checked) {
-                    specHistoryX.push(rawSpecX);
-                    specHistoryY.push(rawSpecY);
-                    specHistoryZ.push(rawSpecZ);
-                    
-                    while (specHistoryX.length > numAvg) {
-                        specHistoryX.shift();
-                        specHistoryY.shift();
-                        specHistoryZ.shift();
-                    }
-                    
-                    baseSpecX = getAverageSpectrum(specHistoryX);
-                    baseSpecY = getAverageSpectrum(specHistoryY);
-                    baseSpecZ = getAverageSpectrum(specHistoryZ);
+                    specHistoryX.push(rawSpecX); specHistoryY.push(rawSpecY); specHistoryZ.push(rawSpecZ);
+                    while (specHistoryX.length > numAvg) { specHistoryX.shift(); specHistoryY.shift(); specHistoryZ.shift(); }
+                    baseSpecX = getAverageSpectrum(specHistoryX); baseSpecY = getAverageSpectrum(specHistoryY); baseSpecZ = getAverageSpectrum(specHistoryZ);
                 } else {
-                    baseSpecX = rawSpecX;
-                    baseSpecY = rawSpecY;
-                    baseSpecZ = rawSpecZ;
+                    baseSpecX = rawSpecX; baseSpecY = rawSpecY; baseSpecZ = rawSpecZ;
                 }
 
                 applySmoothingAndUpdate();
-
                 const overlap = N / 2;
-                fftBufferX.splice(0, overlap);
-                fftBufferY.splice(0, overlap);
-                fftBufferZ.splice(0, overlap);
+                fftBufferX.splice(0, overlap); fftBufferY.splice(0, overlap); fftBufferZ.splice(0, overlap);
 
-                // --- AUTO PAUSE LOGIC ---
+                // --- AUTO PAUSE ---
                 if (chkAvg.checked && totalFramesCount === numAvg) {
-                    isPaused = true;
-                    updatePauseUI();
-                    releaseWakeLock();
+                    isPaused = true; updatePauseUI(); releaseWakeLock();
+                    isWaitingForPickup = true; pickupBaseline = { x: hwData.x, y: hwData.y, z: hwData.z };
+                    overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
                     
-                    isWaitingForPickup = true;
-                    pickupBaseline = { x: hwData.x, y: hwData.y, z: hwData.z };
-                    
-                    overlayTime.classList.remove('hidden');
-                    overlayFreq.classList.remove('hidden');
-                    
-                    overlayTime.innerHTML = '<div class="flex flex-col items-center justify-center h-full cursor-pointer"><span class="text-emerald-400 text-lg font-bold tracking-wider">ΟΛΟΚΛΗΡΩΘΗΚΕ</span><span class="text-slate-300 text-xs mt-1 text-center">Σηκώστε τη συσκευή<br>ή αγγίξτε</span></div>';
-                    overlayFreq.innerHTML = '<div class="flex flex-col items-center justify-center h-full cursor-pointer"><span class="text-emerald-400 text-3xl font-bold tracking-wider text-center">ΟΛΟΚΛΗΡΩΘΗΚΕ<br><span class="text-sm font-normal text-slate-300 mt-2 block">Σηκώστε τη συσκευή για προβολή<br>(ή αγγίξτε)</span></span></div>';
-                    
+                    overlayTime.innerHTML = '<div class="bg-emerald-500/90 backdrop-blur-md px-5 py-2 rounded-xl shadow-lg border border-emerald-400 text-white font-bold tracking-wide cursor-pointer pointer-events-auto text-center">ΟΛΟΚΛΗΡΩΘΗΚΕ</div>';
+                    overlayFreq.innerHTML = '<div class="bg-emerald-500/90 backdrop-blur-md px-6 py-4 rounded-2xl shadow-xl border border-emerald-400 flex flex-col items-center cursor-pointer pointer-events-auto"><span class="text-white text-3xl font-black mb-1">ΟΛΟΚΛΗΡΩΘΗΚΕ</span><span class="text-emerald-50 text-sm font-medium text-center">Σηκώστε τη συσκευή για προβολή<br>(ή αγγίξτε εδώ)</span></div>';
                     showToast('Ο στόχος Averaging ολοκληρώθηκε!');
                 }
             }
         }
 
         function updatePlotData() {
-            globalPlotData = [];
-            if (specX.length === 0) return;
-            
-            const numBins = specX.length; 
-            let doWindows = chkAvg.checked && specHistoryX.length > 0;
-            
+            globalPlotData = []; if (specX.length === 0) return;
+            const numBins = specX.length; let doWindows = chkAvg.checked && specHistoryX.length > 0;
             let ratXWindows = []; let ratYWindows = []; let hvWindows = [];
             let sxWindows = []; let syWindows = []; let szWindows = [];
             
             if (doWindows) {
                 for (let w = 0; w < specHistoryX.length; w++) {
-                    let rx = new Float32Array(numBins);
-                    let ry = new Float32Array(numBins);
-                    let rhv = new Float32Array(numBins);
-                    
+                    let rx = new Float32Array(numBins); let ry = new Float32Array(numBins); let rhv = new Float32Array(numBins);
                     let sx_w = chkSmooth.checked ? smoothArray(specHistoryX[w], parseInt(inpSmoothPts.value)||5) : specHistoryX[w];
                     let sy_w = chkSmooth.checked ? smoothArray(specHistoryY[w], parseInt(inpSmoothPts.value)||5) : specHistoryY[w];
                     let sz_w = chkSmooth.checked ? smoothArray(specHistoryZ[w], parseInt(inpSmoothPts.value)||5) : specHistoryZ[w];
-                    
                     sxWindows.push(sx_w); syWindows.push(sy_w); szWindows.push(sz_w);
 
                     for (let i = 0; i < numBins; i++) {
@@ -766,20 +676,16 @@
 
             for (let i = 0; i < numBins; i++) {
                 const sz_safe = Math.max(specZ[i], 1e-6); 
-                
                 let meanRatX = Math.min(specX[i] / sz_safe, 100);
                 let meanRatY = Math.min(specY[i] / sz_safe, 100);
                 let meanHV = Math.min(Math.sqrt(specX[i] * specY[i]) / sz_safe, 100);
                 let sigmaHV = 0, sigmaSx = 0, sigmaSy = 0, sigmaSz = 0;
 
                 if (doWindows) {
-                    let sumX = 0, sumY = 0, sumHV = 0;
-                    let wCount = ratXWindows.length;
-                    
+                    let sumX = 0, sumY = 0, sumHV = 0; let wCount = ratXWindows.length;
                     for(let w = 0; w < wCount; w++) {
                         sumX += ratXWindows[w][i]; sumY += ratYWindows[w][i]; sumHV += hvWindows[w][i];
                     }
-                    
                     meanRatX = sumX / wCount; meanRatY = sumY / wCount; meanHV = sumHV / wCount;
 
                     if (wCount > 1) {
@@ -790,17 +696,11 @@
                             sqSumSy += Math.pow(syWindows[w][i] - specY[i], 2);
                             sqSumSz += Math.pow(szWindows[w][i] - specZ[i], 2);
                         }
-                        sigmaHV = Math.sqrt(sqSumHV / (wCount - 1));
-                        sigmaSx = Math.sqrt(sqSumSx / (wCount - 1));
-                        sigmaSy = Math.sqrt(sqSumSy / (wCount - 1));
-                        sigmaSz = Math.sqrt(sqSumSz / (wCount - 1));
+                        sigmaHV = Math.sqrt(sqSumHV / (wCount - 1)); sigmaSx = Math.sqrt(sqSumSx / (wCount - 1));
+                        sigmaSy = Math.sqrt(sqSumSy / (wCount - 1)); sigmaSz = Math.sqrt(sqSumSz / (wCount - 1));
                     }
                 }
-
-                if (i === 0) {
-                    meanRatX = 0; meanRatY = 0; meanHV = 0; sigmaHV = 0;
-                }
-
+                if (i === 0) { meanRatX = 0; meanRatY = 0; meanHV = 0; sigmaHV = 0; }
                 globalPlotData.push({
                     sx: specX[i], sy: specY[i], sz: specZ[i],
                     sigmaSx: sigmaSx, sigmaSy: sigmaSy, sigmaSz: sigmaSz,
@@ -813,80 +713,38 @@
         function populateTable() {
             let html = '';
             for(let i=0; i<globalPlotData.length; i++) {
-                const freq = i * df;
-                if (freq > fmax) break;
-                const p = globalPlotData[i];
-                html += `
-                    <tr class="hover:bg-slate-100 transition-colors">
-                        <td class="px-3 py-1.5 font-mono text-slate-700">${freq.toFixed(3)}</td>
-                        <td class="px-3 py-1.5">${p.sx.toFixed(5)}</td>
-                        <td class="px-3 py-1.5 text-slate-400">±${p.sigmaSx.toFixed(5)}</td>
-                        <td class="px-3 py-1.5">${p.sy.toFixed(5)}</td>
-                        <td class="px-3 py-1.5 text-slate-400">±${p.sigmaSy.toFixed(5)}</td>
-                        <td class="px-3 py-1.5">${p.sz.toFixed(5)}</td>
-                        <td class="px-3 py-1.5 text-slate-400">±${p.sigmaSz.toFixed(5)}</td>
-                        <td class="px-3 py-1.5 font-bold text-purple-700">${p.ratHV.toFixed(3)}</td>
-                        <td class="px-3 py-1.5 text-red-500">±${p.sigmaHV.toFixed(3)}</td>
-                    </tr>`;
+                const freq = i * df; if (freq > fmax) break; const p = globalPlotData[i];
+                html += `<tr class="hover:bg-slate-100 transition-colors"><td class="px-3 py-1.5 font-mono text-slate-700">${freq.toFixed(3)}</td><td class="px-3 py-1.5">${p.sx.toFixed(5)}</td><td class="px-3 py-1.5 text-slate-400">±${p.sigmaSx.toFixed(5)}</td><td class="px-3 py-1.5">${p.sy.toFixed(5)}</td><td class="px-3 py-1.5 text-slate-400">±${p.sigmaSy.toFixed(5)}</td><td class="px-3 py-1.5">${p.sz.toFixed(5)}</td><td class="px-3 py-1.5 text-slate-400">±${p.sigmaSz.toFixed(5)}</td><td class="px-3 py-1.5 font-bold text-purple-700">${p.ratHV.toFixed(3)}</td><td class="px-3 py-1.5 text-red-500">±${p.sigmaHV.toFixed(3)}</td></tr>`;
             }
             dataTableBody.innerHTML = html;
         }
 
         function getExportText() {
             if (globalPlotData.length === 0) return null;
-            let text = "";
-            text += "=========================================================\n";
-            text += "DetPer 1.0 - Acquisition & DSP Parameters\n";
-            text += "=========================================================\n";
-            text += `Date/Time:         ${new Date().toLocaleString()}\n`;
-            text += `f max (Hz):        ${fmax}\n`;
-            text += `Frame Size (N):    ${N}\n`;
-            text += `dt (sec):          ${dt.toFixed(4)}\n`;
-            text += `fs (Hz):           ${fs.toFixed(0)}\n`;
-            text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`;
-            text += `df (Hz):           ${df.toFixed(3)}\n`;
-            text += `Anti-Aliasing LPF: ${chkAntiAlias.checked ? 'ON' : 'OFF'}\n`;
-            text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`;
-            text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`;
-            text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`;
-            text += `Total Frames (Ntot):  ${totalFramesCount}\n`;
-            text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
-            text += "=========================================================\n\n";
-            text += "Frequency(Hz)\tSx(gal)\tSigma_Sx\tSy(gal)\tSigma_Sy\tSz(gal)\tSigma_Sz\tHV_Ratio\tHV_Sigma\n";
-            
+            let text = "=========================================================\nDetPer 1.0 - Acquisition & DSP Parameters\n=========================================================\n";
+            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `Anti-Aliasing LPF: ${chkAntiAlias.checked ? 'ON' : 'OFF'}\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
+            text += "=========================================================\n\nFrequency(Hz)\tSx(gal)\tSigma_Sx\tSy(gal)\tSigma_Sy\tSz(gal)\tSigma_Sz\tHV_Ratio\tHV_Sigma\n";
             for(let i=0; i<globalPlotData.length; i++) {
-                const freq = i * df;
-                if (freq > fmax) break;
-                const p = globalPlotData[i];
+                const freq = i * df; if (freq > fmax) break; const p = globalPlotData[i];
                 text += `${freq.toFixed(3)}\t${p.sx.toFixed(5)}\t${p.sigmaSx.toFixed(5)}\t${p.sy.toFixed(5)}\t${p.sigmaSy.toFixed(5)}\t${p.sz.toFixed(5)}\t${p.sigmaSz.toFixed(5)}\t${p.ratHV.toFixed(4)}\t${p.sigmaHV.toFixed(4)}\n`;
             }
             return text;
         }
 
         btnCopy.addEventListener('click', () => {
-            const tsv = getExportText();
-            if (!tsv) { showToast('Δεν υπάρχουν δεδομένα!', true); return; }
-            let textArea = document.createElement("textarea");
-            textArea.value = tsv;
-            textArea.style.position = "fixed"; textArea.style.left = "-9999px";
-            document.body.appendChild(textArea);
-            textArea.focus(); textArea.select();
-            try { document.execCommand('copy'); showToast('Τα δεδομένα αντιγράφηκαν!'); } 
-            catch (err) { showToast('Αποτυχία αντιγραφής', true); }
+            const tsv = getExportText(); if (!tsv) { showToast('Δεν υπάρχουν δεδομένα!', true); return; }
+            let textArea = document.createElement("textarea"); textArea.value = tsv; textArea.style.position = "fixed"; textArea.style.left = "-9999px";
+            document.body.appendChild(textArea); textArea.focus(); textArea.select();
+            try { document.execCommand('copy'); showToast('Τα δεδομένα αντιγράφηκαν!'); } catch (err) { showToast('Αποτυχία αντιγραφής', true); }
             document.body.removeChild(textArea);
         });
 
         btnDownload.addEventListener('click', () => {
-            const tsv = getExportText();
-            if (!tsv) { showToast('Δεν υπάρχουν δεδομένα για αποθήκευση!', true); return; }
-            const blob = new Blob([tsv], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url;
-            const now = new Date();
+            const tsv = getExportText(); if (!tsv) { showToast('Δεν υπάρχουν δεδομένα για αποθήκευση!', true); return; }
+            const blob = new Blob([tsv], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; const now = new Date();
             const ts = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}_${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}`;
-            a.download = `HV_Spectrum_${ts}.txt`;
-            document.body.appendChild(a); a.click();
-            document.body.removeChild(a); URL.revokeObjectURL(url);
+            a.download = `HV_Spectrum_${ts}.txt`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
             showToast('Το αρχείο αποθηκεύτηκε στα Downloads!');
         });
 
@@ -894,49 +752,30 @@
         function handleMotion(event) {
             const acc = event.acceleration || event.accelerationIncludingGravity;
             if (acc) {
-                hwData.x = acc.x || 0;
-                hwData.y = acc.y || 0;
-                hwData.z = acc.z || 0;
-
+                hwData.x = acc.x || 0; hwData.y = acc.y || 0; hwData.z = acc.z || 0;
                 if (isWaitingForPickup) {
-                    let dx = hwData.x - pickupBaseline.x;
-                    let dy = hwData.y - pickupBaseline.y;
-                    let dz = hwData.z - pickupBaseline.z;
-                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) {
-                        dismissCompletedOverlay();
-                    }
+                    let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
+                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 1.5) dismissCompletedOverlay();
                 }
             }
         }
 
-        // --- DRAWING FUNCTIONS ---
-        function drawGrid(ctx, w, h, xDivs = 10, yDivs = 4) {
-            ctx.save();
-            ctx.strokeStyle = 'rgba(134, 239, 172, 0.4)'; 
-            ctx.lineWidth = 0.5; 
-            ctx.setLineDash([4, 4]); 
-            ctx.beginPath();
-            for (let i = 1; i < xDivs; i++) {
-                let x = (w / xDivs) * i; ctx.moveTo(x, 0); ctx.lineTo(x, h);
-            }
-            for (let i = 1; i < yDivs; i++) {
-                let y = (h / yDivs) * i; ctx.moveTo(0, y); ctx.lineTo(w, y);
-            }
+        function drawGridTime(ctx, w, h, xDivs = 10, yDivs = 4) {
+            ctx.save(); ctx.strokeStyle = 'rgba(134, 239, 172, 0.4)'; ctx.lineWidth = 0.5; ctx.setLineDash([4, 4]); ctx.beginPath();
+            for (let i = 1; i < xDivs; i++) { let x = (w / xDivs) * i; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+            for (let i = 1; i < yDivs; i++) { let y = (h / yDivs) * i; ctx.moveTo(0, y); ctx.lineTo(w, y); }
             ctx.stroke(); ctx.restore();
         }
 
         function drawTime() {
             if (!isRunning) return;
             const w = timeCanvas.width; const h = timeCanvas.height; const midY = h / 2;
-            ctxTime.clearRect(0, 0, w, h);
-            drawGrid(ctxTime, w, h, 10, 4);
+            ctxTime.clearRect(0, 0, w, h); drawGridTime(ctxTime, w, h, 10, 4);
 
             ctxTime.strokeStyle = '#334155'; ctxTime.lineWidth = 1;
             ctxTime.beginPath(); ctxTime.moveTo(0, midY); ctxTime.lineTo(w, midY); ctxTime.stroke();
 
-            if (timeBuffer.length === 0) {
-                animIdTime = requestAnimationFrame(drawTime); return;
-            }
+            if (timeBuffer.length === 0) { animIdTime = requestAnimationFrame(drawTime); return; }
 
             let maxVal = 0.01; 
             timeBuffer.forEach(p => {
@@ -945,9 +784,7 @@
                 if(chkTimeZ.checked) maxVal = Math.max(maxVal, Math.abs(p.z));
             });
             maxVal *= 1.2; 
-            
-            const scaleY = (h / 2.2) / maxVal;
-            const stepX = w / maxTimeDisplay;
+            const scaleY = (h / 2.2) / maxVal; const stepX = w / maxTimeDisplay;
 
             const drawChannel = (key, color) => {
                 ctxTime.beginPath(); ctxTime.strokeStyle = color; ctxTime.lineWidth = 1.5;
@@ -965,20 +802,20 @@
             ctxTime.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxTime.font = '10px sans-serif'; ctxTime.textAlign = 'left';
             ctxTime.fillText(`±${maxVal.toFixed(3)} gal`, 5, 12); 
             ctxTime.fillText('0 s', 10, h - 8); ctxTime.textAlign = 'right';
-            let currentTimeSpan = (timeBuffer.length * dt).toFixed(1);
-            ctxTime.fillText(`${currentTimeSpan} s`, w - 10, h - 8); 
+            let currentTimeSpan = (timeBuffer.length * dt).toFixed(1); ctxTime.fillText(`${currentTimeSpan} s`, w - 10, h - 8); 
 
             animIdTime = requestAnimationFrame(drawTime);
         }
 
+        // --- DRAWING FREQ (WITH AUTO-SCALE & Y-AXIS LABELS) ---
         function drawFreq() {
             if (!isRunning && globalPlotData.length === 0) return;
-            const w = freqCanvas.width; const h = freqCanvas.height; const marginB = 20; 
+            const w = freqCanvas.width; const h = freqCanvas.height; 
+            const marginB = 20; const topMargin = 30; // Περιθώρια για να μην χτυπάει το γράφημα στα γράμματα
             ctxFreq.clearRect(0, 0, w, h);
-            if(globalPlotData.length === 0) return;
-
-            drawGrid(ctxFreq, w, h - marginB, 10, 4);
             
+            if(globalPlotData.length === 0) return; // Όταν είναι άδειο, απλά δείχνει το loading overlay
+
             let hasRaw = chkFreqX.checked || chkFreqY.checked || chkFreqZ.checked;
             let hasRat = chkRatX.checked || chkRatY.checked || chkRatHV.checked;
             const isLog = chkLogY && chkLogY.checked;
@@ -991,7 +828,7 @@
                 globalPlotData.forEach((p, i) => {
                     const freq = i * df;
                     if (freq < fMin || freq > fMax) return; 
-                    if (freq < 0.2) return; // ΑΓΝΟΗΣΗ DC & Εξαιρετικά χαμηλών συχνοτήτων για το auto-scale
+                    if (freq < 0.2) return; // Αγνοούμε συχνότητες < 0.2Hz για να μην τρελαθεί το Auto-Scale
                     
                     if(chkRatX.checked) { maxRat = Math.max(maxRat, p.ratX); minRat = Math.min(minRat, safeLogMin(p.ratX)); }
                     if(chkRatY.checked) { maxRat = Math.max(maxRat, p.ratY); minRat = Math.min(minRat, safeLogMin(p.ratY)); }
@@ -1004,7 +841,7 @@
                 if (maxRat === -Infinity || maxRat < 0.1) maxRat = 10;
                 if (minRat === Infinity) minRat = 0.5;
                 
-                maxRat = Math.max(2, maxRat * 1.2); // Tουλάχιστον 2 και 20% οπτικό περιθώριο
+                maxRat = Math.max(2, maxRat * 1.2); // Tουλάχιστον 2 και αφήνουμε +20% "αέρα" οπτικά
                 
                 if (isLog) {
                     minRat = minRat / 1.5; 
@@ -1016,7 +853,7 @@
                 globalPlotData.forEach((p, i) => {
                     const freq = i * df;
                     if (freq < fMin || freq > fMax) return; 
-                    if (i === 0) return; 
+                    if (freq < 0.2) return; 
                     
                     if(chkFreqX.checked) { maxRaw = Math.max(maxRaw, p.sx); minRaw = Math.min(minRaw, safeLogMin(p.sx)); }
                     if(chkFreqY.checked) { maxRaw = Math.max(maxRaw, p.sy); minRaw = Math.min(minRaw, safeLogMin(p.sy)); }
@@ -1035,45 +872,52 @@
             const logMaxRaw = isLog ? Math.log10(maxRaw) : 0; const logMinRaw = isLog ? Math.log10(minRaw) : 0;
 
             const getYRat = (val) => {
-                if (!isLog) {
-                    let safeVal = Math.max(val, minRat); 
-                    safeVal = Math.min(safeVal, maxRat); // Clamping
-                    return h - marginB - ((safeVal - minRat) / (maxRat - minRat)) * (h - marginB - 10);
-                } else {
-                    let safeVal = Math.max(val, minRat);
-                    safeVal = Math.min(safeVal, maxRat); // Clamping 
-                    let lVal = Math.log10(safeVal);
-                    return h - marginB - ((lVal - logMinRat) / (logMaxRat - logMinRat)) * (h - marginB - 10);
-                }
+                let safeVal = Math.max(val, minRat); safeVal = Math.min(safeVal, maxRat); // Clamping (Περιορισμός)
+                if (!isLog) { return h - marginB - ((safeVal - minRat) / (maxRat - minRat)) * (h - marginB - topMargin); } 
+                else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRat) / (logMaxRat - logMinRat)) * (h - marginB - topMargin); }
             };
-            
             const getYRaw = (val) => {
-                if (!isLog) {
-                    let safeVal = Math.max(val, minRaw); 
-                    safeVal = Math.min(safeVal, maxRaw); // Clamping
-                    return h - marginB - ((safeVal - minRaw) / (maxRaw - minRaw)) * (h - marginB - 10);
-                } else {
-                    let safeVal = Math.max(val, minRaw); 
-                    safeVal = Math.min(safeVal, maxRaw); // Clamping
-                    let lVal = Math.log10(safeVal);
-                    return h - marginB - ((lVal - logMinRaw) / (logMaxRaw - logMinRaw)) * (h - marginB - 10);
-                }
+                let safeVal = Math.max(val, minRaw); safeVal = Math.min(safeVal, maxRaw); // Clamping (Περιορισμός)
+                if (!isLog) { return h - marginB - ((safeVal - minRaw) / (maxRaw - minRaw)) * (h - marginB - topMargin); } 
+                else { let lVal = Math.log10(safeVal); return h - marginB - ((lVal - logMinRaw) / (logMaxRaw - logMinRaw)) * (h - marginB - topMargin); }
             };
 
-            // --- CANVAS CLIPPING (Οριοθέτηση σχεδίασης εντός του πλαισίου) ---
+            // --- ΣΧΕΔΙΑΣΜΟΣ GRID ΚΑΙ ΕΤΙΚΕΤΩΝ ΑΞΟΝΑ Y (ΖΩΝΤΑΝΑ!) ---
             ctxFreq.save();
-            ctxFreq.beginPath();
-            ctxFreq.rect(0, 0, w, h - marginB);
-            ctxFreq.clip();
+            ctxFreq.strokeStyle = 'rgba(134, 239, 172, 0.3)'; ctxFreq.lineWidth = 0.5; ctxFreq.setLineDash([4, 4]); ctxFreq.beginPath();
+            let xDivs = 10; for (let i = 1; i < xDivs; i++) { let x = (w / xDivs) * i; ctxFreq.moveTo(x, topMargin); ctxFreq.lineTo(x, h - marginB); }
+            let yDivs = 4;
+            for (let i = 0; i <= yDivs; i++) {
+                let y = h - marginB - (i / yDivs) * (h - marginB - topMargin);
+                ctxFreq.moveTo(0, y); ctxFreq.lineTo(w, y);
+            }
+            ctxFreq.stroke(); 
+
+            ctxFreq.font = '10px sans-serif';
+            for (let i = 0; i <= yDivs; i++) {
+                let y = h - marginB - (i / yDivs) * (h - marginB - topMargin);
+                if (hasRat) {
+                    let vRat = isLog ? Math.pow(10, logMinRat + (logMaxRat - logMinRat) * (i / yDivs)) : minRat + (maxRat - minRat) * (i / yDivs);
+                    ctxFreq.fillStyle = 'rgba(168, 85, 247, 0.8)'; ctxFreq.textAlign = 'right'; ctxFreq.fillText(vRat.toFixed(1), w - 5, y - 4);
+                }
+                if (hasRaw) {
+                    let vRaw = isLog ? Math.pow(10, logMinRaw + (logMaxRaw - logMinRaw) * (i / yDivs)) : minRaw + (maxRaw - minRaw) * (i / yDivs);
+                    ctxFreq.fillStyle = 'rgba(239, 68, 68, 0.8)'; ctxFreq.textAlign = 'left'; ctxFreq.fillText(vRaw.toFixed(3), 5, y - 4);
+                }
+            }
+            ctxFreq.restore();
+
+            // --- ΣΧΕΔΙΑΣΜΟΣ ΚΑΜΠΥΛΩΝ (CLIPPED) ---
+            ctxFreq.save();
+            ctxFreq.beginPath(); ctxFreq.rect(0, topMargin, w, h - marginB - topMargin); ctxFreq.clip(); // Δε ζωγραφίζουμε εκτός περιοχής!
 
             if (chkSigma.checked && chkRatHV.checked) {
-                ctxFreq.save(); ctxFreq.lineWidth = 1.5; ctxFreq.strokeStyle = '#ef4444'; ctxFreq.setLineDash([5, 5]); 
+                ctxFreq.lineWidth = 1.5; ctxFreq.strokeStyle = '#ef4444'; ctxFreq.setLineDash([5, 5]); 
                 ctxFreq.beginPath(); let firstPlus = true;
                 for (let i = 0; i < globalPlotData.length; i++) {
                     const freq = i * df;
                     if (freq >= fMin && freq <= fMax) {
-                        const px = ((freq - fMin) / (fMax - fMin)) * w;
-                        const py = getYRat(globalPlotData[i].ratHV + globalPlotData[i].sigmaHV);
+                        const px = ((freq - fMin) / (fMax - fMin)) * w; const py = getYRat(globalPlotData[i].ratHV + globalPlotData[i].sigmaHV);
                         if (firstPlus) { ctxFreq.moveTo(px, py); firstPlus = false; } else ctxFreq.lineTo(px, py);
                     }
                 }
@@ -1082,12 +926,11 @@
                 for (let i = 0; i < globalPlotData.length; i++) {
                     const freq = i * df;
                     if (freq >= fMin && freq <= fMax) {
-                        const px = ((freq - fMin) / (fMax - fMin)) * w;
-                        const py = getYRat(Math.max(0, globalPlotData[i].ratHV - globalPlotData[i].sigmaHV));
+                        const px = ((freq - fMin) / (fMax - fMin)) * w; const py = getYRat(Math.max(0, globalPlotData[i].ratHV - globalPlotData[i].sigmaHV));
                         if (firstMinus) { ctxFreq.moveTo(px, py); firstMinus = false; } else ctxFreq.lineTo(px, py);
                     }
                 }
-                ctxFreq.stroke(); ctxFreq.restore();
+                ctxFreq.stroke(); ctxFreq.setLineDash([]);
             }
 
             const drawChannel = (key, color, lw = 1.5, useRawAxis = false) => {
@@ -1095,8 +938,7 @@
                 globalPlotData.forEach((p, i) => {
                     const freq = i * df;
                     if (freq >= fMin && freq <= fMax) {
-                        const px = ((freq - fMin) / (fMax - fMin)) * w;
-                        const py = useRawAxis ? getYRaw(p[key]) : getYRat(p[key]);
+                        const px = ((freq - fMin) / (fMax - fMin)) * w; const py = useRawAxis ? getYRaw(p[key]) : getYRat(p[key]);
                         if (first) { ctxFreq.moveTo(px, py); first = false; } else ctxFreq.lineTo(px, py);
                     }
                 });
@@ -1110,34 +952,33 @@
             if (chkFreqY.checked) drawChannel('sy', '#22c55e', 1.5, true);
             if (chkFreqZ.checked) drawChannel('sz', '#3b82f6', 1.5, true);
 
-            ctxFreq.restore(); // ΤΕΛΟΣ CANVAS CLIPPING
+            ctxFreq.restore(); // ΤΕΛΟΣ ΚΟΠΗΣ
 
             let statsText = `Ntot = ${totalFramesCount}`;
             if (chkAvg.checked && specHistoryX.length > 0) statsText += ` | Navg = ${specHistoryX.length}`;
             
             if (hasRaw) {
                 ctxFreq.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxFreq.font = '10px sans-serif'; ctxFreq.textAlign = 'left';
-                ctxFreq.fillText(`Raw Max: ${maxRaw.toFixed(4)} gal`, 10, 16);
+                ctxFreq.fillText(`Raw Max: ${maxRaw.toFixed(4)} gal`, 5, 16);
             }
             if (hasRat) {
                 ctxFreq.fillStyle = 'rgba(168, 85, 247, 0.9)'; ctxFreq.font = 'bold 10px sans-serif'; ctxFreq.textAlign = 'right';
                 let scaleText = isLog ? `${minRat.toFixed(2)} - ${maxRat.toFixed(1)}` : `0 - ${maxRat.toFixed(1)}`;
-                ctxFreq.fillText(`Ratios Scale: ${scaleText}`, w - 10, 16);
+                ctxFreq.fillText(`Ratios Scale: ${scaleText}`, w - 5, 16);
             }
             
             ctxFreq.fillStyle = 'rgba(248, 250, 252, 0.9)'; ctxFreq.font = 'bold 12px sans-serif'; ctxFreq.textAlign = 'center';
             ctxFreq.fillText(statsText, w / 2, 20);
 
             ctxFreq.fillStyle = 'rgba(148, 163, 184, 0.9)'; ctxFreq.font = '10px sans-serif'; ctxFreq.textAlign = 'left';
-            ctxFreq.fillText(fMin.toFixed(1) + ' Hz', 10, h - 8);
-            ctxFreq.textAlign = 'right'; ctxFreq.fillText(fMax.toFixed(1) + ' Hz', w - 10, h - 8);
+            ctxFreq.fillText(fMin.toFixed(1) + ' Hz', 5, h - 8);
+            ctxFreq.textAlign = 'right'; ctxFreq.fillText(fMax.toFixed(1) + ' Hz', w - 5, h - 8);
 
+            // --- CURSOR ---
             if (cursorBin !== null && cursorBin >= 0 && cursorBin < globalPlotData.length) {
                 const freq = cursorBin * df;
                 if (freq >= fMin && freq <= fMax) {
-                    const px = ((freq - fMin) / (fMax - fMin)) * w;
-                    const p = globalPlotData[cursorBin];
-
+                    const px = ((freq - fMin) / (fMax - fMin)) * w; const p = globalPlotData[cursorBin];
                     ctxFreq.beginPath(); ctxFreq.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctxFreq.lineWidth = 1;
                     ctxFreq.moveTo(px, 0); ctxFreq.lineTo(px, h); ctxFreq.stroke();
 
@@ -1154,7 +995,7 @@
 
                     ctxFreq.font = "10px sans-serif";
                     let boxW = 110; let boxH = 16 + (lines.length - 1) * 14;
-                    let boxX = px + 10; let boxY = 30; 
+                    let boxX = px + 10; let boxY = 40; 
                     if (boxX + boxW > w) boxX = px - boxW - 10;
 
                     ctxFreq.fillStyle = 'rgba(15, 23, 42, 0.9)'; ctxFreq.strokeStyle = '#334155';
@@ -1274,15 +1115,14 @@
 
         // --- CONTROLS & COUNTDOWN LOGIC ---
         function toggleUI(running) {
-            btnSensor.classList.toggle('hidden', running);
-            btnSim.classList.toggle('hidden', running);
+            btnSensor.classList.toggle('hidden', running); btnSim.classList.toggle('hidden', running);
             activeControls.classList.toggle('hidden', !running);
             inpFmax.disabled = running; inpN.disabled = running; chkAntiAlias.disabled = running; 
             
             if (!running && !isWaiting) {
                 overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
-                overlayTime.innerHTML = '<span class="text-slate-400 text-sm">Διακόπηκε</span>';
-                overlayFreq.innerHTML = '<span class="text-slate-400 text-sm">Διακόπηκε</span>';
+                overlayTime.innerHTML = '<div class="bg-slate-800/90 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg border border-slate-600"><span class="text-slate-300 text-sm font-medium">Διακόπηκε</span></div>';
+                overlayFreq.innerHTML = '<div class="bg-slate-800/90 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg border border-slate-600"><span class="text-slate-300 text-sm font-medium">Διακόπηκε</span></div>';
             }
         }
 
@@ -1298,95 +1138,60 @@
 
         function startCountdown(simMode, isResume) {
             if (isWaiting) return;
-            isWaiting = true;
-            let count = 5;
+            isWaiting = true; let count = 5;
+            
+            if (!simMode) { window.addEventListener('devicemotion', handleMotion, true); }
             
             if (!isResume) {
-                updateDaqParams();
-                isRunning = true;
-                toggleUI(true);
+                updateDaqParams(); isRunning = true; toggleUI(true);
                 dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Αναμονή...</td></tr>';
-            } else {
-                btnPause.disabled = true; 
-            }
+            } else { btnPause.disabled = true; }
             
-            overlayTime.classList.remove('hidden');
-            overlayFreq.classList.remove('hidden');
+            overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
             
             const updateMsg = (c) => {
-                const msg = `<div class="flex flex-col items-center justify-center h-full"><span class="text-white text-6xl font-black mb-2">${c}</span><span class="text-slate-300 text-sm font-bold">Τοποθετήστε τη συσκευή...</span></div>`;
-                overlayTime.innerHTML = msg;
-                overlayFreq.innerHTML = `<div class="flex flex-col items-center justify-center h-full"><span class="text-white text-6xl font-black mb-2">${c}</span></div>`;
+                const msg = `<div class="bg-slate-800/90 backdrop-blur-md px-6 py-4 rounded-3xl shadow-2xl border border-slate-600 flex flex-col items-center"><span class="text-white text-6xl font-black mb-2">${c}</span><span class="text-slate-300 text-sm font-bold">Τοποθετήστε τη συσκευή...</span></div>`;
+                overlayTime.innerHTML = msg; overlayFreq.innerHTML = msg;
             };
             
             updateMsg(count);
 
             countdownInterval = setInterval(() => {
                 count--;
-                if (count > 0) {
-                    updateMsg(count);
-                } else {
-                    clearInterval(countdownInterval);
-                    isWaiting = false;
-                    btnPause.disabled = false;
-                    
+                if (count > 0) { updateMsg(count); } 
+                else {
+                    clearInterval(countdownInterval); isWaiting = false; btnPause.disabled = false;
                     if (isResume) {
-                        isPaused = false;
-                        updatePauseUI();
+                        isPaused = false; updatePauseUI();
                         overlayTime.classList.add('hidden');
-                        if (specX.length === 0) overlayFreq.innerHTML = '<span class="text-slate-400 text-sm">Αναμονή για γέμισμα buffer...</span>';
-                        else overlayFreq.classList.add('hidden');
+                        if (specX.length === 0) overlayFreq.innerHTML = ''; else overlayFreq.classList.add('hidden');
                         requestWakeLock();
-                        
-                        if (chkAvg.checked && !isFullscreen) {
-                            toggleFullscreen();
-                        }
+                        if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        // --- ΕΠΑΝΑΜΗΔΕΝΙΣΜΟΣ HPF & ΚΑΘΑΡΙΣΜΟΣ PARTIAL FFT ΜΕΤΑ ΤΗΝ ΠΑΥΣΗ ---
-                        firstSample = true;
-                        hpfState = { x: 0, y: 0, z: 0 };
+                        firstSample = true; hpfState = { x: 0, y: 0, z: 0 };
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
-
-                    } else {
-                        actualStartDAQ(simMode);
-                    }
+                    } else { actualStartDAQ(simMode); }
                 }
             }, 1000);
         }
 
         function actualStartDAQ(simMode) {
-            isSimulating = simMode;
-            isPaused = false;
-            
+            isSimulating = simMode; isPaused = false;
             timeBuffer = []; fftBufferX = []; fftBufferY = []; fftBufferZ = [];
             specHistoryX = []; specHistoryY = []; specHistoryZ = [];
             baseSpecX = []; baseSpecY = []; baseSpecZ = [];
-            simTime = 0; totalFramesCount = 0;
-            specX = []; specY = []; specZ = [];
-            globalPlotData = []; cursorBin = null;
-            fMin = 0; fMax = fmax;
+            simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
+            globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
-            firstSample = true;
-            hpfState = { x: 0, y: 0, z: 0 };
-            rawPrev = { x: 0, y: 0, z: 0 };
-            lpfState = { x: 0, y: 0, z: 0 };
+            firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; rawPrev = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
-
-            errorBox.classList.add('hidden');
-            updatePauseUI();
+            errorBox.classList.add('hidden'); updatePauseUI();
             
             overlayTime.classList.add('hidden');
-            overlayFreq.classList.remove('hidden');
-            overlayFreq.innerHTML = '<span class="text-slate-400 text-sm">Αναμονή για γέμισμα buffer (Frame Size)...</span>';
+            overlayFreq.classList.remove('hidden'); overlayFreq.innerHTML = '';
 
-            if (chkAvg.checked && !isFullscreen) {
-                toggleFullscreen();
-            }
-
-            if (!isSimulating) {
-                window.addEventListener('devicemotion', handleMotion, true);
-            }
+            if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
             requestWakeLock();
             daqIntervalId = setInterval(daqTick, dt * 1000);
@@ -1397,31 +1202,21 @@
 
         btnPause.addEventListener('click', () => {
             if (isWaiting) return;
-            
-            if (isPaused) {
-                startCountdown(isSimulating, true);
-            } else {
-                isPaused = true;
-                updatePauseUI();
-                releaseWakeLock();
+            if (isPaused) { startCountdown(isSimulating, true); } 
+            else {
+                isPaused = true; updatePauseUI(); releaseWakeLock();
                 overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
-                overlayTime.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><span class="text-amber-500 text-lg font-bold">Σε Παύση</span><span class="text-slate-300 text-xs mt-1">Μπορείτε να σηκώσετε τη συσκευή</span></div>';
-                overlayFreq.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><span class="text-amber-500 text-lg font-bold">Σε Παύση</span></div>';
+                overlayTime.innerHTML = '<div class="bg-amber-500/90 backdrop-blur-md px-5 py-2 rounded-xl shadow-lg border border-amber-400 text-white font-bold tracking-wide">Σε Παύση</div>';
+                overlayFreq.innerHTML = '<div class="bg-amber-500/90 backdrop-blur-md px-5 py-2 rounded-xl shadow-lg border border-amber-400 text-white font-bold tracking-wide cursor-pointer pointer-events-auto text-center flex flex-col">Σε Παύση<span class="text-xs font-normal mt-1">Μπορείτε να σηκώσετε τη συσκευή</span></div>';
             }
         });
 
         function stopAll() {
             isRunning = false; isPaused = false; isWaiting = false; isWaitingForPickup = false;
-            clearInterval(countdownInterval);
-            clearInterval(daqIntervalId);
-            cancelAnimationFrame(animIdTime);
+            clearInterval(countdownInterval); clearInterval(daqIntervalId); cancelAnimationFrame(animIdTime);
             window.removeEventListener('devicemotion', handleMotion, true);
-            btnPause.disabled = false;
-            releaseWakeLock();
-            
-            const liveReadout = document.getElementById('liveSensorData');
-            if (liveReadout) liveReadout.textContent = '';
-            
+            btnPause.disabled = false; releaseWakeLock();
+            const liveReadout = document.getElementById('liveSensorData'); if (liveReadout) liveReadout.textContent = '';
             toggleUI(false);
         }
 
@@ -1431,24 +1226,12 @@
                     const permission = await DeviceMotionEvent.requestPermission();
                     if (permission === 'granted') startCountdown(false, false);
                     else showError('Απαιτείται άδεια πρόσβασης στους αισθητήρες. Ελέγξτε τις ρυθμίσεις του Browser σας.');
-                } catch (e) {
-                    showError('Σφάλμα: Η συσκευή απαιτεί ασφαλή σύνδεση (HTTPS) ή κλικ στο κουμπί.');
-                }
-            } else {
-                startCountdown(false, false);
-            }
+                } catch (e) { showError('Σφάλμα: Η συσκευή απαιτεί ασφαλή σύνδεση (HTTPS) ή κλικ στο κουμπί.'); }
+            } else { startCountdown(false, false); }
         }
 
-        // Live ενημέρωση
-        [chkSmooth, inpSmoothPts, chkLogY, chkSigma].forEach(el => {
-            el.addEventListener('change', () => {
-                if (el === chkLogY || el === chkSigma) drawFreq();
-                else if (!isRunning || isPaused) applySmoothingAndUpdate();
-            });
-        });
-        [chkFreqX, chkFreqY, chkFreqZ, chkRatX, chkRatY, chkRatHV].forEach(chk => {
-            chk.addEventListener('change', () => drawFreq()); 
-        });
+        [chkSmooth, inpSmoothPts, chkLogY, chkSigma].forEach(el => { el.addEventListener('change', () => { if (el === chkLogY || el === chkSigma) drawFreq(); else if (!isRunning || isPaused) applySmoothingAndUpdate(); }); });
+        [chkFreqX, chkFreqY, chkFreqZ, chkRatX, chkRatY, chkRatHV].forEach(chk => { chk.addEventListener('change', () => drawFreq()); });
 
         btnSensor.addEventListener('click', requestAccess);
         btnSim.addEventListener('click', () => startCountdown(true, false));
