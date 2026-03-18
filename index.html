@@ -375,17 +375,11 @@
 
         let currentWindow = { array: [], correction: 1.0 };
 
-        // Hardware sensor latest data & DSP Variables
+        // Hardware sensor latest data
         let pickupBaseline = { x: 0, y: 0, z: 0 };
-        let rawG = { x: 0, y: 0, z: 0 }; // Raw Acceleration with Gravity (in gal)
-        
-        // 5-Point Median Filter Buffers (Despiker)
-        let medBufX = [], medBufY = [], medBufZ = [];
-        
-        // Exponential Moving Average (Gravity Blocker)
-        let gravEMA = null; 
-        let gravAlpha = 0.99; // Cutoff ~0.08 Hz at 50Hz sampling
-
+        let rawBuffer = []; // Κουβάς για Decimation (εξομαλύνει τα glitches)
+        let hwData = { x: 0, y: 0, z: 0 };
+        let lastValid = { x: 0, y: 0, z: 0 }; // Για Despiking
         let simTime = 0;
         let totalFramesCount = 0;
 
@@ -393,9 +387,10 @@
         let fMin = 0;
         let fMax = fmax;
 
-        // Anti-Alias LPF State
+        // LPF State
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
+        let firstSample = true;
 
         // Buffers
         let timeBuffer = []; 
@@ -574,37 +569,33 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- HARDWARE SENSOR (RAW WITH GRAVITY TO BYPASS NOISE GATE) ---
+        // --- HARDWARE SENSOR ---
         function handleMotion(event) {
             let ax = null, ay = null, az = null;
             
-            // 1. Zητάμε ΑΠΟΚΛΕΙΣΤΙΚΑ την ακατέργαστη επιτάχυνση για να παρακάμψουμε 
-            // το Android Deadband/Noise Gate που βγάζει μηδενικά στην απόλυτη ησυχία!
-            if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
-                ax = event.accelerationIncludingGravity.x;
-                ay = event.accelerationIncludingGravity.y;
-                az = event.accelerationIncludingGravity.z;
-            } else if (event.acceleration && typeof event.acceleration.x === 'number') {
-                // Fallback αν η συσκευή αρνείται να δώσει raw δεδομένα
+            // Προτιμούμε τη Γραμμική Επιτάχυνση (Καθαρή από το OS)
+            if (event.acceleration && typeof event.acceleration.x === 'number') {
                 ax = event.acceleration.x;
                 ay = event.acceleration.y;
                 az = event.acceleration.z;
+            } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
+                ax = event.accelerationIncludingGravity.x;
+                ay = event.accelerationIncludingGravity.y;
+                az = event.accelerationIncludingGravity.z;
             }
 
             if (ax !== null) {
-                rawG.x = ax * 100; // gal
-                rawG.y = ay * 100;
-                rawG.z = az * 100;
+                rawBuffer.push({ x: ax, y: ay, z: az });
                 hasReceivedData = true;
 
                 if (isWaitingForPickup) {
-                    let dx = rawG.x - pickupBaseline.x; let dy = rawG.y - pickupBaseline.y; let dz = rawG.z - pickupBaseline.z;
+                    let dx = (ax * 100) - pickupBaseline.x; let dy = (ay * 100) - pickupBaseline.y; let dz = (az * 100) - pickupBaseline.z;
                     if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 150) dismissCompletedOverlay();
                 }
             }
         }
 
-        // --- DAQ LOGIC (MEDIAN FILTER & EMA GRAVITY REMOVAL) ---
+        // --- DAQ LOGIC ---
         function daqTick() {
             if (!isRunning || isPaused || isWaiting) return;
 
@@ -621,32 +612,36 @@
             } else {
                 if (!hasReceivedData) return;
 
-                // 1. Συλλογή των Raw Δεδομένων στον 5-point buffer
-                medBufX.push(rawG.x); if(medBufX.length > 5) medBufX.shift();
-                medBufY.push(rawG.y); if(medBufY.length > 5) medBufY.shift();
-                medBufZ.push(rawG.z); if(medBufZ.length > 5) medBufZ.shift();
-
-                // 2. MEDIAN FILTER: Απορρίπτει άμεσα κάθε καρφί (glitch) της Samsung!
-                let mX = getMedian(medBufX);
-                let mY = getMedian(medBufY);
-                let mZ = getMedian(medBufZ);
-
-                // 3. EMA GRAVITY FILTER: Αφαιρεί τέλεια τα 981 gal της βαρύτητας
-                if (gravEMA === null) {
-                    gravEMA = { x: mX, y: mY, z: mZ };
-                } else {
-                    gravEMA.x = gravAlpha * gravEMA.x + (1 - gravAlpha) * mX;
-                    gravEMA.y = gravAlpha * gravEMA.y + (1 - gravAlpha) * mY;
-                    gravEMA.z = gravAlpha * gravEMA.z + (1 - gravAlpha) * mZ;
+                if (rawBuffer.length > 0) {
+                    let sumX = 0, sumY = 0, sumZ = 0;
+                    for (let i = 0; i < rawBuffer.length; i++) {
+                        sumX += rawBuffer[i].x; sumY += rawBuffer[i].y; sumZ += rawBuffer[i].z;
+                    }
+                    hwData.x = sumX / rawBuffer.length;
+                    hwData.y = sumY / rawBuffer.length;
+                    hwData.z = sumZ / rawBuffer.length;
+                    rawBuffer = []; // Αδειάζουμε τον κουβά (Decimation)
                 }
 
-                // Το τελικό, τέλεια καθαρό microtremor σήμα!
-                x = mX - gravEMA.x;
-                y = mY - gravEMA.y;
-                z = mZ - gravEMA.z;
+                let rawX = hwData.x * 100; // μετατροπή σε gal
+                let rawY = hwData.y * 100;
+                let rawZ = hwData.z * 100;
+
+                if (firstSample) { 
+                    lastValid = { x: rawX, y: rawY, z: rawZ }; 
+                    firstSample = false; 
+                }
+
+                // Ακραίο Despiking: Αν το σήμα πηδήξει πάνω από 15 gal σε ένα dt (0.02 sec), είναι hardware glitch
+                if (Math.abs(rawX - lastValid.x) > 15.0 || Math.abs(rawY - lastValid.y) > 15.0 || Math.abs(rawZ - lastValid.z) > 15.0) {
+                    x = lastValid.x; y = lastValid.y; z = lastValid.z;
+                } else {
+                    x = rawX; y = rawY; z = rawZ;
+                    lastValid = { x: x, y: y, z: z };
+                }
                 
                 const liveReadout = document.getElementById('liveSensorData');
-                if (liveReadout) liveReadout.textContent = `[Microtremors gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
+                if (liveReadout) liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
             // Anti-Aliasing LPF
@@ -1225,7 +1220,7 @@
                         requestWakeLock();
                         if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; gravEMA = null; medBufX = []; medBufY = []; medBufZ = [];
+                        firstSample = true; rawBuffer = []; lastValid = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
                     } else { actualStartDAQ(simMode); }
                 }
@@ -1243,8 +1238,7 @@
             simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
-            firstSample = true; hpfState = { x: 0, y: 0, z: 0 }; rawPrev = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
-            gravEMA = null; medBufX = []; medBufY = []; medBufZ = [];
+            firstSample = true; rawBuffer = []; lastValid = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
