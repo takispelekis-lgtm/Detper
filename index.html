@@ -57,6 +57,7 @@
 
         <main class="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1">
             
+            <!-- DAQ Params -->
             <div class="lg:col-span-1 flex flex-col gap-4">
                 
                 <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
@@ -375,11 +376,9 @@
 
         let currentWindow = { array: [], correction: 1.0 };
 
-        // Hardware sensor latest data
+        // Hardware sensor latest data 
         let pickupBaseline = { x: 0, y: 0, z: 0 };
-        let rawBuffer = []; // Κουβάς για Decimation (εξομαλύνει τα glitches)
         let hwData = { x: 0, y: 0, z: 0 };
-        let lastValid = { x: 0, y: 0, z: 0 }; // Για Despiking
         let simTime = 0;
         let totalFramesCount = 0;
 
@@ -387,10 +386,14 @@
         let fMin = 0;
         let fMax = fmax;
 
+        // Αόρατο DC-Blocker (Αργό EMA) για κεντράρισμα της κλίμακας χωρίς Spikes!
+        let dcOffset = { x: 0, y: 0, z: 0 };
+        const dcAlpha = 0.98;
+        let firstSample = true;
+
         // LPF State
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
-        let firstSample = true;
 
         // Buffers
         let timeBuffer = []; 
@@ -506,14 +509,6 @@
         resizeCanvases();
 
         // --- MATH FUNCTIONS ---
-        
-        // Fast Median Function for Despiking
-        function getMedian(arr) {
-            if (arr.length === 0) return 0;
-            let sorted = [...arr].sort((a, b) => a - b);
-            return sorted[Math.floor(sorted.length / 2)];
-        }
-
         function computeFFTMagnitude(realArray) {
             let n = realArray.length; let re = [...realArray]; let im = new Array(n).fill(0);
             for (let i = 0; i < n; i++) {
@@ -569,23 +564,27 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- HARDWARE SENSOR ---
+        // --- HARDWARE SENSOR (ΕΠΑΝΑΦΟΡΑ ΣΤΟΝ ΧΡΥΣΟ ΠΥΡΗΝΑ) ---
         function handleMotion(event) {
             let ax = null, ay = null, az = null;
             
-            // Προτιμούμε τη Γραμμική Επιτάχυνση (Καθαρή από το OS)
+            // Προτεραιότητα στη ΓΡΑΜΜΙΚΗ επιτάχυνση (Καθαρό σήμα από το Kalman Filter του Android)
             if (event.acceleration && typeof event.acceleration.x === 'number') {
                 ax = event.acceleration.x;
                 ay = event.acceleration.y;
                 az = event.acceleration.z;
-            } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
+            } 
+            // Μόνο αν η συσκευή είναι εντελώς ανίκανη (π.χ. πολύ παλιά) πάμε στο raw
+            else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
                 ax = event.accelerationIncludingGravity.x;
                 ay = event.accelerationIncludingGravity.y;
                 az = event.accelerationIncludingGravity.z;
             }
 
             if (ax !== null) {
-                rawBuffer.push({ x: ax, y: ay, z: az });
+                hwData.x = ax;
+                hwData.y = ay;
+                hwData.z = az;
                 hasReceivedData = true;
 
                 if (isWaitingForPickup) {
@@ -612,33 +611,24 @@
             } else {
                 if (!hasReceivedData) return;
 
-                if (rawBuffer.length > 0) {
-                    let sumX = 0, sumY = 0, sumZ = 0;
-                    for (let i = 0; i < rawBuffer.length; i++) {
-                        sumX += rawBuffer[i].x; sumY += rawBuffer[i].y; sumZ += rawBuffer[i].z;
-                    }
-                    hwData.x = sumX / rawBuffer.length;
-                    hwData.y = sumY / rawBuffer.length;
-                    hwData.z = sumZ / rawBuffer.length;
-                    rawBuffer = []; // Αδειάζουμε τον κουβά (Decimation)
-                }
-
-                let rawX = hwData.x * 100; // μετατροπή σε gal
+                let rawX = hwData.x * 100; // gal
                 let rawY = hwData.y * 100;
                 let rawZ = hwData.z * 100;
 
                 if (firstSample) { 
-                    lastValid = { x: rawX, y: rawY, z: rawZ }; 
+                    dcOffset = { x: rawX, y: rawY, z: rawZ }; 
                     firstSample = false; 
                 }
 
-                // Ακραίο Despiking: Αν το σήμα πηδήξει πάνω από 15 gal σε ένα dt (0.02 sec), είναι hardware glitch
-                if (Math.abs(rawX - lastValid.x) > 15.0 || Math.abs(rawY - lastValid.y) > 15.0 || Math.abs(rawZ - lastValid.z) > 15.0) {
-                    x = lastValid.x; y = lastValid.y; z = lastValid.z;
-                } else {
-                    x = rawX; y = rawY; z = rawZ;
-                    lastValid = { x: x, y: y, z: z };
-                }
+                // Απλό & Αόρατο DC-Blocker (Moving Average)
+                // Δεν δημιουργεί κανένα απολύτως καρφί/spike. Απλά κεντράρει σιγά σιγά το γράφημα στο 0.
+                dcOffset.x = dcAlpha * dcOffset.x + (1 - dcAlpha) * rawX;
+                dcOffset.y = dcAlpha * dcOffset.y + (1 - dcAlpha) * rawY;
+                dcOffset.z = dcAlpha * dcOffset.z + (1 - dcAlpha) * rawZ;
+                
+                x = rawX - dcOffset.x; 
+                y = rawY - dcOffset.y; 
+                z = rawZ - dcOffset.z;
                 
                 const liveReadout = document.getElementById('liveSensorData');
                 if (liveReadout) liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
@@ -692,7 +682,7 @@
 
                 if (chkAvg.checked && totalFramesCount === numAvg) {
                     isPaused = true; updatePauseUI(); releaseWakeLock();
-                    isWaitingForPickup = true; pickupBaseline = { x: rawG.x, y: rawG.y, z: rawG.z };
+                    isWaitingForPickup = true; pickupBaseline = { x: hwData.x * 100, y: hwData.y * 100, z: hwData.z * 100 };
                     overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
                     
                     overlayTime.innerHTML = '<div class="bg-emerald-500/90 backdrop-blur-md px-5 py-2 rounded-xl shadow-lg border border-emerald-400 text-white font-bold tracking-wide cursor-pointer pointer-events-auto text-center">ΟΛΟΚΛΗΡΩΘΗΚΕ</div>';
@@ -1220,7 +1210,7 @@
                         requestWakeLock();
                         if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        firstSample = true; rawBuffer = []; lastValid = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
+                        firstSample = true; dcOffset = { x: 0, y: 0, z: 0 }; 
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
                     } else { actualStartDAQ(simMode); }
                 }
@@ -1238,7 +1228,7 @@
             simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
-            firstSample = true; rawBuffer = []; lastValid = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
+            firstSample = true; dcOffset = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
