@@ -36,6 +36,7 @@
 
     <div class="max-w-[1600px] mx-auto flex flex-col gap-4">
 
+        <!-- HEADER -->
         <header class="bg-white p-3 sm:px-5 sm:py-3 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center gap-3 sm:gap-5 flex-shrink-0">
             <img src="https://www.upatras.gr/wp-content/uploads/upatras-2.jpg" alt="Πανεπιστήμιο Πατρών" class="h-12 sm:h-14 object-contain">
             <div class="hidden md:block w-px h-10 bg-slate-300"></div>
@@ -57,6 +58,7 @@
 
         <main class="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1">
             
+            <!-- LEFT PANEL: SETTINGS & CONTROLS -->
             <div class="lg:col-span-1 flex flex-col gap-4">
                 
                 <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
@@ -110,10 +112,6 @@
                         Επεξεργασία Φάσματος
                     </h2>
                     <div class="space-y-3 text-sm">
-                        <label class="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200 mb-2">
-                            <input type="checkbox" id="chkAntiAlias" class="accent-blue-600 w-4 h-4" checked>
-                            <span class="text-slate-700 font-medium text-[11px] uppercase">Anti-Aliasing Filter (LPF)</span>
-                        </label>
 
                         <div class="flex items-center justify-between">
                             <label class="flex items-center gap-2 cursor-pointer">
@@ -157,6 +155,7 @@
                     </div>
                 </div>
 
+                <!-- CONTROLS -->
                 <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-2">
                     <button id="btnSensor" class="w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors text-sm shadow-md shadow-blue-600/20">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> 
@@ -201,8 +200,10 @@
 
             </div>
 
+            <!-- RIGHT PANEL: GRAPHS & TABLE -->
             <div class="lg:col-span-3 flex flex-col gap-4">
                 
+                <!-- TIME DOMAIN -->
                 <div class="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[280px] sm:h-[300px] relative">
                     <div class="flex justify-between items-center mb-2">
                         <div class="flex flex-col">
@@ -221,6 +222,7 @@
                     </div>
                 </div>
 
+                <!-- FREQUENCY DOMAIN -->
                 <div id="panelFreq" class="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[380px] sm:h-[450px] relative transition-all duration-200">
                     <div class="flex flex-col sm:flex-row justify-between items-start mb-3 gap-2 w-full">
                         <h2 class="text-sm font-bold text-slate-800 flex items-center justify-between w-full sm:w-auto">
@@ -255,6 +257,7 @@
                     </div>
                 </div>
 
+                <!-- TABLE -->
                 <div class="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col relative h-[300px]">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
                         <h2 class="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -321,7 +324,6 @@
         const chkSmooth = document.getElementById('chkSmooth');
         const inpSmoothPts = document.getElementById('inpSmoothPts');
         const chkAvg = document.getElementById('chkAvg');
-        const chkAntiAlias = document.getElementById('chkAntiAlias');
         const inpNumAvg = document.getElementById('inpNumAvg');
         const inpWindow = document.getElementById('inpWindow');
 
@@ -383,11 +385,6 @@
 
         let fMin = 0;
         let fMax = fmax;
-
-        // LPF State
-        let lpfAlpha = 1;
-        let lpfState = { x: 0, y: 0, z: 0 };
-        let firstSample = true;
 
         // Buffers
         let timeBuffer = []; 
@@ -483,8 +480,6 @@
             maxTimeDisplay = fs * 5;
 
             if (fmax !== oldFmax) { fMin = 0; fMax = fmax; }
-
-            lpfAlpha = dt / ((1 / (2 * Math.PI * fmax)) + dt);
             currentWindow = calculateWindowCoeffs(inpWindow.value, N);
         }
         inpFmax.addEventListener('change', updateDaqParams); inpN.addEventListener('change', updateDaqParams); inpWindow.addEventListener('change', updateDaqParams);
@@ -560,12 +555,10 @@
 
         // --- PURE HARDWARE SENSOR ---
         function handleMotion(event) {
-            // ΜΟΝΟ ΚΑΘΑΡΗ ΓΡΑΜΜΙΚΗ ΕΠΙΤΑΧΥΝΣΗ. 
-            // Αν το κινητό στέλνει 0 στην ησυχία, το δεχόμαστε.
-            // Αν διαβάζαμε την επιτάχυνση με τη βαρύτητα, το λειτουργικό "πήδαγε" τακτικά
-            // από το 0 στο 9.81 m/s² προκαλώντας τεράστιο τεχνητό θόρυβο (±23 gal).
-            if (event.acceleration && typeof event.acceleration.x === 'number' && event.acceleration.x !== null) {
-                hwData.x = event.acceleration.x * 100; // gal
+            // ΔΙΑΒΑΖΟΥΜΕ ΑΥΣΤΗΡΑ ΤΗΝ ΚΑΘΑΡΗ ΓΡΑΜΜΙΚΗ ΕΠΙΤΑΧΥΝΣΗ
+            // Καμία επαφή με το accelerationIncludingGravity για να αποφύγουμε τα spikes!
+            if (event.acceleration && typeof event.acceleration.x === 'number') {
+                hwData.x = event.acceleration.x * 100; // μετατροπή σε gal
                 hwData.y = event.acceleration.y * 100;
                 hwData.z = event.acceleration.z * 100;
                 hasReceivedData = true;
@@ -602,22 +595,6 @@
                 if (liveReadout) liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
-            // Software Anti-Aliasing LPF
-            if (chkAntiAlias.checked) {
-                if (firstSample) {
-                    lpfState.x = x; lpfState.y = y; lpfState.z = z;
-                    firstSample = false;
-                } else {
-                    lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
-                    lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
-                    lpfState.z = lpfAlpha * z + (1 - lpfAlpha) * lpfState.z;
-                }
-                x = lpfState.x; y = lpfState.y; z = lpfState.z;
-            } else {
-                lpfState = {x, y, z}; 
-                firstSample = false;
-            }
-
             timeBuffer.push({x, y, z});
             if (timeBuffer.length > maxTimeDisplay) timeBuffer.shift();
 
@@ -638,7 +615,6 @@
             if (fftBufferX.length >= N) {
                 totalFramesCount++; 
                 
-                // Textbook Demean (Μηδενισμός μικρού DC offset αυστηρά και μόνο μέσα στο παράθυρο FFT)
                 let fMeanX = 0, fMeanY = 0, fMeanZ = 0;
                 for(let i=0; i<N; i++) { fMeanX += fftBufferX[i]; fMeanY += fftBufferY[i]; fMeanZ += fftBufferZ[i]; }
                 fMeanX /= N; fMeanY /= N; fMeanZ /= N;
@@ -689,7 +665,7 @@
                     sxWindows.push(sx_w); syWindows.push(sy_w); szWindows.push(sz_w);
 
                     for (let i = 0; i < numBins; i++) {
-                        let sz_safe_w = Math.max(sz_w[i], 1e-6);
+                        let sz_safe_w = Math.max(sz_w[i], 1e-9); // Ασφάλεια διαίρεσης αν είναι 0.000
                         rx[i] = Math.min(sx_w[i] / sz_safe_w, 100);
                         ry[i] = Math.min(sy_w[i] / sz_safe_w, 100);
                         rhv[i] = Math.min(Math.sqrt(sx_w[i] * sy_w[i]) / sz_safe_w, 100);
@@ -699,7 +675,7 @@
             }
 
             for (let i = 0; i < numBins; i++) {
-                const sz_safe = Math.max(specZ[i], 1e-6); 
+                const sz_safe = Math.max(specZ[i], 1e-9); // Ασφάλεια διαίρεσης αν είναι 0.000
                 let meanRatX = Math.min(specX[i] / sz_safe, 100);
                 let meanRatY = Math.min(specY[i] / sz_safe, 100);
                 let meanHV = Math.min(Math.sqrt(specX[i] * specY[i]) / sz_safe, 100);
@@ -747,7 +723,7 @@
         function getExportText() {
             if (globalPlotData.length === 0) return null;
             let text = "=========================================================\nDetPer 1.0 - Acquisition & DSP Parameters\n=========================================================\n";
-            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `Anti-Aliasing LPF: ${chkAntiAlias.checked ? 'ON' : 'OFF'}\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
+            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
             text += "=========================================================\n\nFrequency(Hz)\tSx(gal)\tSigma_Sx\tSy(gal)\tSigma_Sy\tSz(gal)\tSigma_Sz\tHV_Ratio\tHV_Sigma\n";
             const fmt = (v) => Number(v).toExponential(4);
             for(let i=0; i<globalPlotData.length; i++) {
@@ -1144,7 +1120,7 @@
         function toggleUI(running) {
             btnSensor.classList.toggle('hidden', running); btnSim.classList.toggle('hidden', running);
             activeControls.classList.toggle('hidden', !running);
-            inpFmax.disabled = running; inpN.disabled = running; chkAntiAlias.disabled = running;
+            inpFmax.disabled = running; inpN.disabled = running; 
             
             if (!running && !isWaiting) {
                 overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
@@ -1196,7 +1172,6 @@
                         requestWakeLock();
                         if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        firstSample = true; lpfState = { x: 0, y: 0, z: 0 };
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
                     } else { actualStartDAQ(simMode); }
                 }
@@ -1213,8 +1188,6 @@
             baseSpecX = []; baseSpecY = []; baseSpecZ = [];
             simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
-            
-            firstSample = true; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
