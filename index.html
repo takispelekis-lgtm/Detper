@@ -1199,12 +1199,14 @@
             countdownInterval = setInterval(() => {
                 count--;
                 
-                // Τα τελευταία 2 δευτερόλεπτα κάνουμε "αόρατη" βαθμονόμηση (Auto-Zero)
-                if (count <= 2 && !simMode && chkAutoZero.checked) {
-                    isCountingDownForCalib = true;
-                    updateMsg(count, true);
-                } else if (count > 0) { 
-                    updateMsg(count, false); 
+                if (count > 0) {
+                    // Τα τελευταία 2 δευτερόλεπτα κάνουμε "αόρατη" βαθμονόμηση (Auto-Zero)
+                    if (count <= 2 && !simMode && chkAutoZero.checked) {
+                        isCountingDownForCalib = true;
+                        updateMsg(count, true);
+                    } else { 
+                        updateMsg(count, false); 
+                    }
                 } else {
                     clearInterval(countdownInterval); isWaiting = false; btnPause.disabled = false;
                     
