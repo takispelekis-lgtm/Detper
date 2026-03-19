@@ -558,33 +558,21 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- HARDWARE SENSOR ACQUISITION ---
+        // --- PURE HARDWARE SENSOR ---
         function handleMotion(event) {
-            let ax = null, ay = null, az = null;
-            
-            // Επιστροφή στην ΑΡΧΙΚΗ, ΣΤΑΘΕΡΗ ΜΕΘΟΔΟ: 
-            // Διαβάζουμε πρώτα και κύρια την καθαρή Γραμμική Επιτάχυνση (Linear Acceleration).
-            if (event.acceleration && typeof event.acceleration.x === 'number') {
-                ax = event.acceleration.x;
-                ay = event.acceleration.y;
-                az = event.acceleration.z;
-            } 
-            // Fallback ΜΟΝΟ αν το κινητό δεν υποστηρίζει linear καθόλου.
-            else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
-                ax = event.accelerationIncludingGravity.x;
-                ay = event.accelerationIncludingGravity.y;
-                az = event.accelerationIncludingGravity.z;
-            }
-
-            if (ax !== null) {
-                hwData.x = ax * 100; // gal
-                hwData.y = ay * 100;
-                hwData.z = az * 100;
+            // ΜΟΝΟ ΚΑΘΑΡΗ ΓΡΑΜΜΙΚΗ ΕΠΙΤΑΧΥΝΣΗ. 
+            // Αν το κινητό στέλνει 0 στην ησυχία, το δεχόμαστε.
+            // Αν διαβάζαμε την επιτάχυνση με τη βαρύτητα, το λειτουργικό "πήδαγε" τακτικά
+            // από το 0 στο 9.81 m/s² προκαλώντας τεράστιο τεχνητό θόρυβο (±23 gal).
+            if (event.acceleration && typeof event.acceleration.x === 'number' && event.acceleration.x !== null) {
+                hwData.x = event.acceleration.x * 100; // gal
+                hwData.y = event.acceleration.y * 100;
+                hwData.z = event.acceleration.z * 100;
                 hasReceivedData = true;
 
                 if (isWaitingForPickup) {
                     let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
-                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 150) dismissCompletedOverlay();
+                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 50) dismissCompletedOverlay();
                 }
             }
         }
@@ -609,6 +597,9 @@
                 x = hwData.x;
                 y = hwData.y;
                 z = hwData.z;
+                
+                const liveReadout = document.getElementById('liveSensorData');
+                if (liveReadout) liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
             // Software Anti-Aliasing LPF
@@ -625,11 +616,6 @@
             } else {
                 lpfState = {x, y, z}; 
                 firstSample = false;
-            }
-
-            const liveReadout = document.getElementById('liveSensorData');
-            if (liveReadout) {
-                liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
             timeBuffer.push({x, y, z});
@@ -652,7 +638,7 @@
             if (fftBufferX.length >= N) {
                 totalFramesCount++; 
                 
-                // Textbook Demean (Μηδενισμός μικρού DC offset μέσα στο παράθυρο FFT)
+                // Textbook Demean (Μηδενισμός μικρού DC offset αυστηρά και μόνο μέσα στο παράθυρο FFT)
                 let fMeanX = 0, fMeanY = 0, fMeanZ = 0;
                 for(let i=0; i<N; i++) { fMeanX += fftBufferX[i]; fMeanY += fftBufferY[i]; fMeanZ += fftBufferZ[i]; }
                 fMeanX /= N; fMeanY /= N; fMeanZ /= N;
@@ -805,6 +791,7 @@
 
             if (timeBuffer.length === 0) { animIdTime = requestAnimationFrame(drawTime); return; }
 
+            // Ελάχιστη κλίμακα 0.01 gal για να βλέπουμε πολύ μικρό θόρυβο
             let maxVal = 0.01; 
             timeBuffer.forEach(p => {
                 if(chkTimeX.checked) maxVal = Math.max(maxVal, Math.abs(p.x));
