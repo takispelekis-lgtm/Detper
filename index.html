@@ -103,6 +103,11 @@
                                 <span id="txtDf" class="font-mono text-blue-900 font-bold text-sm">0.098</span>
                             </div>
                         </div>
+
+                        <label class="flex items-center gap-2 cursor-pointer mt-3 bg-slate-50 p-2 rounded-lg border border-slate-200" title="Αφαιρεί το σταθερό σφάλμα του αισθητήρα κατά την αντίστροφη μέτρηση (στατική αφαίρεση, χωρίς αλλοίωση).">
+                            <input type="checkbox" id="chkAutoZero" class="accent-blue-600 w-4 h-4" checked>
+                            <span class="text-slate-700 font-bold text-[10px] uppercase">Auto-Zero (Hardware Bias)</span>
+                        </label>
                     </div>
                 </div>
 
@@ -326,6 +331,7 @@
         const chkAvg = document.getElementById('chkAvg');
         const inpNumAvg = document.getElementById('inpNumAvg');
         const inpWindow = document.getElementById('inpWindow');
+        const chkAutoZero = document.getElementById('chkAutoZero');
 
         const overlayTime = document.getElementById('overlayTime');
         const overlayFreq = document.getElementById('overlayFreq');
@@ -365,6 +371,10 @@
         let isWaitingForPickup = false;
         let hasReceivedData = false; 
         
+        let isCountingDownForCalib = false;
+        let calibSum = { x: 0, y: 0, z: 0, count: 0 };
+        let hardwareBias = { x: 0, y: 0, z: 0 };
+
         let daqIntervalId;
         let animIdTime;
         let countdownInterval;
@@ -555,12 +565,31 @@
 
         // --- PURE HARDWARE SENSOR ---
         function handleMotion(event) {
-            // ΔΙΑΒΑΖΟΥΜΕ ΑΥΣΤΗΡΑ ΤΗΝ ΚΑΘΑΡΗ ΓΡΑΜΜΙΚΗ ΕΠΙΤΑΧΥΝΣΗ
-            // Καμία επαφή με το accelerationIncludingGravity για να αποφύγουμε τα spikes!
+            let ax = null, ay = null, az = null;
+
+            // Διαβάζουμε ΑΥΣΤΗΡΑ την καθαρή Γραμμική Επιτάχυνση (χωρίς βαρύτητα)
             if (event.acceleration && typeof event.acceleration.x === 'number') {
-                hwData.x = event.acceleration.x * 100; // μετατροπή σε gal
-                hwData.y = event.acceleration.y * 100;
-                hwData.z = event.acceleration.z * 100;
+                ax = event.acceleration.x * 100; // μετατροπή σε gal
+                ay = event.acceleration.y * 100;
+                az = event.acceleration.z * 100;
+            } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
+                // Fallback αν το κινητό δεν έχει καθόλου linear αισθητήρα
+                ax = event.accelerationIncludingGravity.x * 100;
+                ay = event.accelerationIncludingGravity.y * 100;
+                az = event.accelerationIncludingGravity.z * 100;
+            }
+
+            if (ax !== null) {
+                // Κατά την αντίστροφη μέτρηση (τελευταία 2s) μαζεύουμε το σφάλμα (hardware bias)
+                if (isCountingDownForCalib && chkAutoZero && chkAutoZero.checked) {
+                    calibSum.x += ax; calibSum.y += ay; calibSum.z += az;
+                    calibSum.count++;
+                }
+
+                // Αφαιρούμε το σταθερό σφάλμα από την ένδειξη μόνιμα, κεντράροντας στο 0!
+                hwData.x = ax - hardwareBias.x;
+                hwData.y = ay - hardwareBias.y;
+                hwData.z = az - hardwareBias.z;
                 hasReceivedData = true;
 
                 if (isWaitingForPickup) {
@@ -723,7 +752,7 @@
         function getExportText() {
             if (globalPlotData.length === 0) return null;
             let text = "=========================================================\nDetPer 1.0 - Acquisition & DSP Parameters\n=========================================================\n";
-            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
+            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `Auto-Zero Bias X:  ${hardwareBias.x.toFixed(4)} gal\n`; text += `Auto-Zero Bias Y:  ${hardwareBias.y.toFixed(4)} gal\n`; text += `Auto-Zero Bias Z:  ${hardwareBias.z.toFixed(4)} gal\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
             text += "=========================================================\n\nFrequency(Hz)\tSx(gal)\tSigma_Sx\tSy(gal)\tSigma_Sy\tSz(gal)\tSigma_Sz\tHV_Ratio\tHV_Sigma\n";
             const fmt = (v) => Number(v).toExponential(4);
             for(let i=0; i<globalPlotData.length; i++) {
@@ -1121,6 +1150,7 @@
             btnSensor.classList.toggle('hidden', running); btnSim.classList.toggle('hidden', running);
             activeControls.classList.toggle('hidden', !running);
             inpFmax.disabled = running; inpN.disabled = running; 
+            chkAutoZero.disabled = running;
             
             if (!running && !isWaiting) {
                 overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
@@ -1143,6 +1173,11 @@
             if (isWaiting) return;
             isWaiting = true; let count = 5;
             
+            // Reset calibration states
+            isCountingDownForCalib = false;
+            calibSum = { x: 0, y: 0, z: 0, count: 0 };
+            hardwareBias = { x: 0, y: 0, z: 0 };
+            
             if (!simMode) { window.addEventListener('devicemotion', handleMotion, true); }
             
             if (!isResume) {
@@ -1152,18 +1187,33 @@
             
             overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
             
-            const updateMsg = (c) => {
-                const msg = `<div class="bg-slate-800/90 backdrop-blur-md px-6 py-4 rounded-3xl shadow-2xl border border-slate-600 flex flex-col items-center"><span class="text-white text-6xl font-black mb-2">${c}</span><span class="text-slate-300 text-sm font-bold">Τοποθετήστε τη συσκευή...</span></div>`;
+            const updateMsg = (c, isCalibratingNow) => {
+                let subText = isCalibratingNow ? "Μην κουνάτε τη συσκευή... (Μηδενισμός)" : "Τοποθετήστε τη συσκευή...";
+                let color = isCalibratingNow ? "text-amber-400" : "text-white";
+                const msg = `<div class="bg-slate-800/90 backdrop-blur-md px-6 py-4 rounded-3xl shadow-2xl border border-slate-600 flex flex-col items-center"><span class="${color} text-6xl font-black mb-2">${c}</span><span class="text-slate-300 text-sm font-bold text-center">${subText}</span></div>`;
                 overlayTime.innerHTML = msg; overlayFreq.innerHTML = msg;
             };
             
-            updateMsg(count);
+            updateMsg(count, false);
 
             countdownInterval = setInterval(() => {
                 count--;
-                if (count > 0) { updateMsg(count); } 
-                else {
+                
+                // Τα τελευταία 2 δευτερόλεπτα κάνουμε "αόρατη" βαθμονόμηση (Auto-Zero)
+                if (count <= 2 && !simMode && chkAutoZero.checked) {
+                    isCountingDownForCalib = true;
+                    updateMsg(count, true);
+                } else if (count > 0) { 
+                    updateMsg(count, false); 
+                } else {
                     clearInterval(countdownInterval); isWaiting = false; btnPause.disabled = false;
+                    
+                    isCountingDownForCalib = false;
+                    if (calibSum.count > 0) {
+                        hardwareBias.x = calibSum.x / calibSum.count;
+                        hardwareBias.y = calibSum.y / calibSum.count;
+                        hardwareBias.z = calibSum.z / calibSum.count;
+                    }
 
                     if (isResume) {
                         isPaused = false; updatePauseUI();
