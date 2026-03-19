@@ -375,26 +375,19 @@
 
         let currentWindow = { array: [], correction: 1.0 };
 
-        // Hardware sensor & DSP
+        // Hardware sensor data
         let pickupBaseline = { x: 0, y: 0, z: 0 };
         let hwData = { x: 0, y: 0, z: 0 };
         let simTime = 0;
         let totalFramesCount = 0;
 
-        // Zoom state
         let fMin = 0;
         let fMax = fmax;
 
-        // ΤΟ ΑΠΟΛΥΤΟ ΨΗΦΙΑΚΟ ΦΙΛΤΡΟ (1st-Order IIR DC Blocker)
-        // Αφαιρεί τη βαρύτητα ακαριαία, χωρίς να παραμορφώνει (dampen) το σήμα ή να δημιουργεί τετράγωνα!
-        let filtered = { x: 0, y: 0, z: 0 };
-        let prevRaw = { x: 0, y: 0, z: 0 };
-        let hpfAlpha = 0.98; // Ιδανικό για 50Hz. Επιτρέπει τα microtremors, κόβει τη βαρύτητα.
-        let firstSample = true;
-
-        // LPF State (Anti-Aliasing)
+        // LPF State (Only for Anti-Aliasing)
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
+        let firstSample = true;
 
         // Buffers
         let timeBuffer = []; 
@@ -565,36 +558,38 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- HARDWARE SENSOR ---
+        // --- PURE HARDWARE SENSOR (NO CUSTOM FILTERS) ---
         function handleMotion(event) {
             let ax = null, ay = null, az = null;
             
-            // ΠΑΝΤΑ Ακατέργαστο Σήμα (Με βαρύτητα) 
-            // Παρακάμπτει τα μηδενικά του Android στην απόλυτη ησυχία.
-            if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
-                ax = event.accelerationIncludingGravity.x;
-                ay = event.accelerationIncludingGravity.y;
-                az = event.accelerationIncludingGravity.z;
-            } else if (event.acceleration && typeof event.acceleration.x === 'number') {
+            // Χρησιμοποιούμε τη Γραμμική Επιτάχυνση του λειτουργικού.
+            // Αν في απόλυτη ησυχία βγάζει 0, αυτό είναι το hardware όριο του κινητού! 
+            // Μην προσπαθείτε να το "πειράξετε", δημιουργεί artifacts.
+            if (event.acceleration && typeof event.acceleration.x === 'number') {
                 ax = event.acceleration.x;
                 ay = event.acceleration.y;
                 az = event.acceleration.z;
+            } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
+                // Fallback (Αν το κινητό δεν υποστηρίζει linear)
+                ax = event.accelerationIncludingGravity.x;
+                ay = event.accelerationIncludingGravity.y;
+                az = event.accelerationIncludingGravity.z;
             }
 
             if (ax !== null) {
-                hwData.x = ax;
-                hwData.y = ay;
-                hwData.z = az;
+                hwData.x = ax * 100; // gal
+                hwData.y = ay * 100;
+                hwData.z = az * 100;
                 hasReceivedData = true;
 
                 if (isWaitingForPickup) {
-                    let dx = (ax * 100) - pickupBaseline.x; let dy = (ay * 100) - pickupBaseline.y; let dz = (az * 100) - pickupBaseline.z;
+                    let dx = hwData.x - pickupBaseline.x; let dy = hwData.y - pickupBaseline.y; let dz = hwData.z - pickupBaseline.z;
                     if (Math.sqrt(dx*dx + dy*dy + dz*dz) > 150) dismissCompletedOverlay();
                 }
             }
         }
 
-        // --- DAQ LOGIC (TEXTBOOK SEISMOLOGY DC-BLOCKER) ---
+        // --- DAQ LOGIC (SYNCHRONOUS) ---
         function daqTick() {
             if (!isRunning || isPaused || isWaiting) return;
 
@@ -611,38 +606,29 @@
             } else {
                 if (!hasReceivedData) return;
 
-                let rawX = hwData.x * 100; // gal
-                let rawY = hwData.y * 100;
-                let rawZ = hwData.z * 100;
-
-                if (firstSample) { 
-                    prevRaw = { x: rawX, y: rawY, z: rawZ };
-                    filtered = { x: 0, y: 0, z: 0 }; // Τέλειο μηδενισμό της βαρύτητας ακαριαία
-                    firstSample = false; 
-                } else {
-                    // Textbook 1st-Order IIR High-Pass Filter (DC Blocker).
-                    // Κρατάει τις πραγματικές δονήσεις ΣΕ ΑΠΟΛΥΤΟ 0 ΧΩΡΙΣ ΚΑΜΠΥΛΕΣ.
-                    filtered.x = hpfAlpha * filtered.x + hpfAlpha * (rawX - prevRaw.x);
-                    filtered.y = hpfAlpha * filtered.y + hpfAlpha * (rawY - prevRaw.y);
-                    filtered.z = hpfAlpha * filtered.z + hpfAlpha * (rawZ - prevRaw.z);
-                    prevRaw = { x: rawX, y: rawY, z: rawZ };
-                }
-
-                x = filtered.x; 
-                y = filtered.y; 
-                z = filtered.z;
+                x = hwData.x;
+                y = hwData.y;
+                z = hwData.z;
                 
                 const liveReadout = document.getElementById('liveSensorData');
-                if (liveReadout) liveReadout.textContent = `[Microtremor gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
+                if (liveReadout) liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
             }
 
-            // Anti-Aliasing LPF (Δεν πειράζει τους παλμούς, κόβει απλά τον υψίσυχνο θόρυβο)
+            // Software Anti-Aliasing LPF (Δεν αλλοιώνει χαμηλές συχνότητες, δεν κόβει παλμούς)
             if (chkAntiAlias.checked) {
-                lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
-                lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
-                lpfState.z = lpfAlpha * z + (1 - lpfAlpha) * lpfState.z;
+                if (firstSample) {
+                    lpfState.x = x; lpfState.y = y; lpfState.z = z;
+                    firstSample = false;
+                } else {
+                    lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
+                    lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
+                    lpfState.z = lpfAlpha * z + (1 - lpfAlpha) * lpfState.z;
+                }
                 x = lpfState.x; y = lpfState.y; z = lpfState.z;
-            } else { lpfState = {x, y, z}; }
+            } else {
+                lpfState = {x, y, z}; 
+                firstSample = false;
+            }
 
             timeBuffer.push({x, y, z});
             if (timeBuffer.length > maxTimeDisplay) timeBuffer.shift();
@@ -664,9 +650,16 @@
             if (fftBufferX.length >= N) {
                 totalFramesCount++; 
                 
-                let wx = fftBufferX.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
-                let wy = fftBufferY.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
-                let wz = fftBufferZ.map((v, i) => v * currentWindow.array[i] * currentWindow.correction);
+                // --- TEXTBOOK DEMEAN (ΜΗΔΕΝΙΣΜΟΣ DC COMPONENT) ---
+                // Αφαιρούμε τον μέσο όρο *μόνο* μέσα στο παράθυρο του FFT!
+                // Δεν επηρεάζει καθόλου τα γραφήματα του χρόνου. Απλά αποτρέπει το 0 Hz να χαλάσει τον λόγο H/V.
+                let fMeanX = 0, fMeanY = 0, fMeanZ = 0;
+                for(let i=0; i<N; i++) { fMeanX += fftBufferX[i]; fMeanY += fftBufferY[i]; fMeanZ += fftBufferZ[i]; }
+                fMeanX /= N; fMeanY /= N; fMeanZ /= N;
+
+                let wx = fftBufferX.map((v, i) => (v - fMeanX) * currentWindow.array[i] * currentWindow.correction);
+                let wy = fftBufferY.map((v, i) => (v - fMeanY) * currentWindow.array[i] * currentWindow.correction);
+                let wz = fftBufferZ.map((v, i) => (v - fMeanZ) * currentWindow.array[i] * currentWindow.correction);
 
                 let rawSpecX = computeFFTMagnitude(wx); let rawSpecY = computeFFTMagnitude(wy); let rawSpecZ = computeFFTMagnitude(wz);
                 let numAvg = parseInt(inpNumAvg.value) || 20;
@@ -685,7 +678,7 @@
 
                 if (chkAvg.checked && totalFramesCount === numAvg) {
                     isPaused = true; updatePauseUI(); releaseWakeLock();
-                    isWaitingForPickup = true; pickupBaseline = { x: hwData.x * 100, y: hwData.y * 100, z: hwData.z * 100 };
+                    isWaitingForPickup = true; pickupBaseline = { x: hwData.x, y: hwData.y, z: hwData.z };
                     overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
                     
                     overlayTime.innerHTML = '<div class="bg-emerald-500/90 backdrop-blur-md px-5 py-2 rounded-xl shadow-lg border border-emerald-400 text-white font-bold tracking-wide cursor-pointer pointer-events-auto text-center">ΟΛΟΚΛΗΡΩΘΗΚΕ</div>';
@@ -810,8 +803,8 @@
 
             if (timeBuffer.length === 0) { animIdTime = requestAnimationFrame(drawTime); return; }
 
-            // Ελάχιστη ευαισθησία 0.05 gal για να βλέπουμε τον θόρυβο στην απόλυτη ησυχία
-            let maxVal = 0.05; 
+            // Ελάχιστη κλίμακα 0.01 gal για να βλέπουμε πολύ μικρό θόρυβο
+            let maxVal = 0.01; 
             timeBuffer.forEach(p => {
                 if(chkTimeX.checked) maxVal = Math.max(maxVal, Math.abs(p.x));
                 if(chkTimeY.checked) maxVal = Math.max(maxVal, Math.abs(p.y));
@@ -823,7 +816,6 @@
             const drawChannel = (key, color) => {
                 ctxTime.beginPath(); ctxTime.strokeStyle = color; ctxTime.lineWidth = 1.5;
                 timeBuffer.forEach((p, i) => {
-                    // Ζωγραφίζουμε το σήμα ακριβώς όπως βγαίνει από το DC Blocker (καθαρό και στο 0)
                     const px = i * stepX; const py = midY - (p[key] * scaleY);
                     if (i === 0) ctxTime.moveTo(px, py); else ctxTime.lineTo(px, py);
                 });
@@ -1216,7 +1208,7 @@
                         requestWakeLock();
                         if (chkAvg.checked && !isFullscreen) toggleFullscreen();
 
-                        firstSample = true; filtered = { x: 0, y: 0, z: 0 }; prevRaw = { x: 0, y: 0, z: 0 };
+                        firstSample = true; lpfState = { x: 0, y: 0, z: 0 };
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
                     } else { actualStartDAQ(simMode); }
                 }
@@ -1234,7 +1226,7 @@
             simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
-            firstSample = true; filtered = { x: 0, y: 0, z: 0 }; prevRaw = { x: 0, y: 0, z: 0 }; lpfState = { x: 0, y: 0, z: 0 };
+            firstSample = true; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
