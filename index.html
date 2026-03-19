@@ -110,16 +110,10 @@
                         Επεξεργασία Φάσματος
                     </h2>
                     <div class="space-y-3 text-sm">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-2 mb-2">
-                            <label class="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200" title="Αφαιρεί το σταθερό offset (π.χ. Βαρύτητα)">
-                                <input type="checkbox" id="chkACCoupling" class="accent-blue-600 w-4 h-4" checked>
-                                <span class="text-slate-700 font-bold text-[10px] uppercase">DC Block (HPF)</span>
-                            </label>
-                            <label class="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200">
-                                <input type="checkbox" id="chkAntiAlias" class="accent-blue-600 w-4 h-4" checked>
-                                <span class="text-slate-700 font-bold text-[10px] uppercase">Anti-Alias (LPF)</span>
-                            </label>
-                        </div>
+                        <label class="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded-lg border border-slate-200 mb-2">
+                            <input type="checkbox" id="chkAntiAlias" class="accent-blue-600 w-4 h-4" checked>
+                            <span class="text-slate-700 font-medium text-[11px] uppercase">Anti-Aliasing Filter (LPF)</span>
+                        </label>
 
                         <div class="flex items-center justify-between">
                             <label class="flex items-center gap-2 cursor-pointer">
@@ -273,7 +267,7 @@
                                 <span>Αντιγραφή</span>
                             </button>
                             <button id="btnDownload" class="flex-1 sm:flex-none flex justify-center items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-800 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-blue-200" title="Αποθήκευση στα Downloads">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2-2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                 <span>Αποθήκευση (.txt)</span>
                             </button>
                         </div>
@@ -328,7 +322,6 @@
         const inpSmoothPts = document.getElementById('inpSmoothPts');
         const chkAvg = document.getElementById('chkAvg');
         const chkAntiAlias = document.getElementById('chkAntiAlias');
-        const chkACCoupling = document.getElementById('chkACCoupling');
         const inpNumAvg = document.getElementById('inpNumAvg');
         const inpWindow = document.getElementById('inpWindow');
 
@@ -370,6 +363,10 @@
         let isWaitingForPickup = false;
         let hasReceivedData = false; 
         
+        let isCalibrating = false;
+        let staticBaseline = { x: 0, y: 0, z: 0 };
+        let baselineStats = { sumX: 0, sumY: 0, sumZ: 0, count: 0 };
+
         let daqIntervalId;
         let animIdTime;
         let countdownInterval;
@@ -391,13 +388,10 @@
         let fMin = 0;
         let fMax = fmax;
 
-        // Filter States
+        // LPF State
         let lpfAlpha = 1;
         let lpfState = { x: 0, y: 0, z: 0 };
-        let firstLpfSample = true;
-        
-        let hpState = { prevRawX: 0, prevRawY: 0, prevRawZ: 0, filteredX: 0, filteredY: 0, filteredZ: 0 };
-        let firstHpSample = true;
+        let firstSample = true;
 
         // Buffers
         let timeBuffer = []; 
@@ -568,20 +562,20 @@
             updatePlotData(); drawFreq(); populateTable();
         }
 
-        // --- PURE HARDWARE SENSOR ---
+        // --- HARDWARE SENSOR ACQUISITION ---
         function handleMotion(event) {
             let ax = null, ay = null, az = null;
             
-            // Επιλέγουμε ιδανικά την καθαρή επιτάχυνση (αν υποστηρίζεται)
-            if (event.acceleration && typeof event.acceleration.x === 'number') {
-                ax = event.acceleration.x;
-                ay = event.acceleration.y;
-                az = event.acceleration.z;
-            } else if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
-                // Αν δεν υποστηρίζεται, η βαρύτητα θα αφαιρεθεί μέσω του DC Blocker (HPF)
+            // OPTION B: Αντλούμε την ΚΑΘΑΡΗ επιτάχυνση βαρύτητας, παρακάμπτοντας το OS Fusion
+            // που προκαλεί τα εκθετικά σφάλματα. Το static baseline θα αφαιρέσει τη βαρύτητα.
+            if (event.accelerationIncludingGravity && typeof event.accelerationIncludingGravity.x === 'number') {
                 ax = event.accelerationIncludingGravity.x;
                 ay = event.accelerationIncludingGravity.y;
                 az = event.accelerationIncludingGravity.z;
+            } else if (event.acceleration && typeof event.acceleration.x === 'number') {
+                ax = event.acceleration.x;
+                ay = event.acceleration.y;
+                az = event.acceleration.z;
             }
 
             if (ax !== null) {
@@ -616,36 +610,45 @@
                 x = hwData.x; y = hwData.y; z = hwData.z;
             }
 
-            // --- AC COUPLING (HIGH-PASS FILTER / DC BLOCKER) ---
-            // Κόβει τη σταθερή συνιστώσα (~9.81 m/s^2 ή σταθερά offsets)
-            if (chkACCoupling.checked) {
-                if (firstHpSample) {
-                    hpState.filteredX = 0; hpState.filteredY = 0; hpState.filteredZ = 0;
-                    hpState.prevRawX = x; hpState.prevRawY = y; hpState.prevRawZ = z;
-                    firstHpSample = false;
-                    x = 0; y = 0; z = 0;
-                } else {
-                    let fc_hp = 0.1; // Συχνότητα αποκοπής: 0.1 Hz
-                    let RC_hp = 1.0 / (2.0 * Math.PI * fc_hp);
-                    let alpha_hp = RC_hp / (RC_hp + dt);
+            // --- STATIC BASELINE CALIBRATION (ΑΦΑΙΡΕΣΗ ΣΤΑΘΕΡΗΣ ΒΑΡΥΤΗΤΑΣ ΧΩΡΙΣ ΦΙΛΤΡΟ) ---
+            if (isCalibrating) {
+                baselineStats.sumX += x;
+                baselineStats.sumY += y;
+                baselineStats.sumZ += z;
+                baselineStats.count++;
 
-                    hpState.filteredX = alpha_hp * hpState.filteredX + alpha_hp * (x - hpState.prevRawX);
-                    hpState.filteredY = alpha_hp * hpState.filteredY + alpha_hp * (y - hpState.prevRawY);
-                    hpState.filteredZ = alpha_hp * hpState.filteredZ + alpha_hp * (z - hpState.prevRawZ);
+                let targetCount = Math.floor(fs * 2.0); // 2 δευτερόλεπτα βαθμονόμησης
+                let pct = Math.min(100, Math.round((baselineStats.count / targetCount) * 100));
+                
+                let txtCalibPct = document.getElementById('txtCalibPct');
+                if (txtCalibPct) txtCalibPct.textContent = pct + '%';
 
-                    hpState.prevRawX = x; hpState.prevRawY = y; hpState.prevRawZ = z;
+                if (baselineStats.count >= targetCount) {
+                    staticBaseline.x = baselineStats.sumX / baselineStats.count;
+                    staticBaseline.y = baselineStats.sumY / baselineStats.count;
+                    staticBaseline.z = baselineStats.sumZ / baselineStats.count;
+                    isCalibrating = false;
                     
-                    x = hpState.filteredX; y = hpState.filteredY; z = hpState.filteredZ;
+                    // Καθαρισμός buffers για να ξεκινήσει η εγγραφή πεντακάθαρα!
+                    timeBuffer = []; fftBufferX = []; fftBufferY = []; fftBufferZ = [];
+                    simTime = 0; totalFramesCount = 0;
+                    
+                    overlayTime.classList.add('hidden');
+                    overlayFreq.classList.add('hidden');
                 }
-            } else {
-                firstHpSample = true; // reset ώστε αν το ξανανάψει να πιάσει το νέο baseline
+                return; // Κατά τη βαθμονόμηση, δεν γράφουμε γραφήματα ούτε υπολογίζουμε FFT.
             }
 
-            // --- ANTI-ALIASING (LOW-PASS FILTER) ---
+            // Εφαρμογή του Static Baseline σε κάθε δείγμα!
+            x -= staticBaseline.x;
+            y -= staticBaseline.y;
+            z -= staticBaseline.z;
+
+            // Software Anti-Aliasing LPF
             if (chkAntiAlias.checked) {
-                if (firstLpfSample) {
+                if (firstSample) {
                     lpfState.x = x; lpfState.y = y; lpfState.z = z;
-                    firstLpfSample = false;
+                    firstSample = false;
                 } else {
                     lpfState.x = lpfAlpha * x + (1 - lpfAlpha) * lpfState.x;
                     lpfState.y = lpfAlpha * y + (1 - lpfAlpha) * lpfState.y;
@@ -654,10 +657,9 @@
                 x = lpfState.x; y = lpfState.y; z = lpfState.z;
             } else {
                 lpfState = {x, y, z}; 
-                firstLpfSample = false;
+                firstSample = false;
             }
 
-            // Αφού φιλτραριστούν τα δεδομένα ενημερώνουμε το UI
             const liveReadout = document.getElementById('liveSensorData');
             if (liveReadout) {
                 liveReadout.textContent = `[ACC gal: X:${x.toFixed(3)} Y:${y.toFixed(3)} Z:${z.toFixed(3)}]`;
@@ -683,7 +685,6 @@
             if (fftBufferX.length >= N) {
                 totalFramesCount++; 
                 
-                // --- TEXTBOOK DEMEAN (ΜΗΔΕΝΙΣΜΟΣ DC COMPONENT ΣΤΟ ΠΑΡΑΘΥΡΟ) ---
                 let fMeanX = 0, fMeanY = 0, fMeanZ = 0;
                 for(let i=0; i<N; i++) { fMeanX += fftBufferX[i]; fMeanY += fftBufferY[i]; fMeanZ += fftBufferZ[i]; }
                 fMeanX /= N; fMeanY /= N; fMeanZ /= N;
@@ -781,9 +782,10 @@
         // --- DATA EXPORT & TABLE ---
         function populateTable() {
             let html = '';
+            const fmt = (v) => Number(v).toExponential(4);
             for(let i=0; i<globalPlotData.length; i++) {
                 const freq = i * df; if (freq > fmax) break; const p = globalPlotData[i];
-                html += `<tr class="hover:bg-slate-100 transition-colors"><td class="px-3 py-1.5 font-mono text-slate-700">${freq.toFixed(3)}</td><td class="px-3 py-1.5">${p.sx.toFixed(5)}</td><td class="px-3 py-1.5 text-slate-400">±${p.sigmaSx.toFixed(5)}</td><td class="px-3 py-1.5">${p.sy.toFixed(5)}</td><td class="px-3 py-1.5 text-slate-400">±${p.sigmaSy.toFixed(5)}</td><td class="px-3 py-1.5">${p.sz.toFixed(5)}</td><td class="px-3 py-1.5 text-slate-400">±${p.sigmaSz.toFixed(5)}</td><td class="px-3 py-1.5 font-bold text-purple-700">${p.ratHV.toFixed(3)}</td><td class="px-3 py-1.5 text-red-500">±${p.sigmaHV.toFixed(3)}</td></tr>`;
+                html += `<tr class="hover:bg-slate-100 transition-colors"><td class="px-3 py-1.5 font-mono text-slate-700">${freq.toFixed(3)}</td><td class="px-3 py-1.5">${fmt(p.sx)}</td><td class="px-3 py-1.5 text-slate-400">±${fmt(p.sigmaSx)}</td><td class="px-3 py-1.5">${fmt(p.sy)}</td><td class="px-3 py-1.5 text-slate-400">±${fmt(p.sigmaSy)}</td><td class="px-3 py-1.5">${fmt(p.sz)}</td><td class="px-3 py-1.5 text-slate-400">±${fmt(p.sigmaSz)}</td><td class="px-3 py-1.5 font-bold text-purple-700">${fmt(p.ratHV)}</td><td class="px-3 py-1.5 text-red-500">±${fmt(p.sigmaHV)}</td></tr>`;
             }
             dataTableBody.innerHTML = html;
         }
@@ -791,11 +793,12 @@
         function getExportText() {
             if (globalPlotData.length === 0) return null;
             let text = "=========================================================\nDetPer 1.0 - Acquisition & DSP Parameters\n=========================================================\n";
-            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `DC Block (HPF):    ${chkACCoupling.checked ? 'ON' : 'OFF'}\n`; text += `Anti-Aliasing LPF: ${chkAntiAlias.checked ? 'ON' : 'OFF'}\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
+            text += `Date/Time:         ${new Date().toLocaleString()}\n`; text += `f max (Hz):        ${fmax}\n`; text += `Frame Size (N):    ${N}\n`; text += `dt (sec):          ${dt.toFixed(4)}\n`; text += `fs (Hz):           ${fs.toFixed(0)}\n`; text += `Tr (sec):          ${(N * dt).toFixed(2)}\n`; text += `df (Hz):           ${df.toFixed(3)}\n`; text += `Baseline Removal:  Static Calibration (2s)\n`; text += `Anti-Aliasing LPF: ${chkAntiAlias.checked ? 'ON' : 'OFF'}\n`; text += `Smoothing:         ${chkSmooth.checked ? inpSmoothPts.value + ' Points' : 'OFF'}\n`; text += `Averaging:         ${chkAvg.checked ? inpNumAvg.value + ' Frames Target' : 'OFF'}\n`; text += `Windowing:         ${inpWindow.options[inpWindow.selectedIndex].text}\n`; text += `Total Frames (Ntot):  ${totalFramesCount}\n`; text += `Frames Averaged(Navg): ${specHistoryX.length}\n`;
             text += "=========================================================\n\nFrequency(Hz)\tSx(gal)\tSigma_Sx\tSy(gal)\tSigma_Sy\tSz(gal)\tSigma_Sz\tHV_Ratio\tHV_Sigma\n";
+            const fmt = (v) => Number(v).toExponential(4);
             for(let i=0; i<globalPlotData.length; i++) {
                 const freq = i * df; if (freq > fmax) break; const p = globalPlotData[i];
-                text += `${freq.toFixed(3)}\t${p.sx.toFixed(5)}\t${p.sigmaSx.toFixed(5)}\t${p.sy.toFixed(5)}\t${p.sigmaSy.toFixed(5)}\t${p.sz.toFixed(5)}\t${p.sigmaSz.toFixed(5)}\t${p.ratHV.toFixed(4)}\t${p.sigmaHV.toFixed(4)}\n`;
+                text += `${freq.toFixed(3)}\t${fmt(p.sx)}\t${fmt(p.sigmaSx)}\t${fmt(p.sy)}\t${fmt(p.sigmaSy)}\t${fmt(p.sz)}\t${fmt(p.sigmaSz)}\t${fmt(p.ratHV)}\t${fmt(p.sigmaHV)}\n`;
             }
             return text;
         }
@@ -834,7 +837,6 @@
 
             if (timeBuffer.length === 0) { animIdTime = requestAnimationFrame(drawTime); return; }
 
-            // Ελάχιστη κλίμακα 0.01 gal για να βλέπουμε πολύ μικρό θόρυβο
             let maxVal = 0.01; 
             timeBuffer.forEach(p => {
                 if(chkTimeX.checked) maxVal = Math.max(maxVal, Math.abs(p.x));
@@ -1187,7 +1189,7 @@
         function toggleUI(running) {
             btnSensor.classList.toggle('hidden', running); btnSim.classList.toggle('hidden', running);
             activeControls.classList.toggle('hidden', !running);
-            inpFmax.disabled = running; inpN.disabled = running; chkAntiAlias.disabled = running; chkACCoupling.disabled = running;
+            inpFmax.disabled = running; inpN.disabled = running; chkAntiAlias.disabled = running;
             
             if (!running && !isWaiting) {
                 overlayTime.classList.remove('hidden'); overlayFreq.classList.remove('hidden');
@@ -1234,13 +1236,23 @@
 
                     if (isResume) {
                         isPaused = false; updatePauseUI();
-                        overlayTime.classList.add('hidden');
                         if (specX.length === 0) overlayFreq.innerHTML = ''; else overlayFreq.classList.add('hidden');
                         requestWakeLock();
                         
-                        firstLpfSample = true; lpfState = { x: 0, y: 0, z: 0 };
-                        firstHpSample = true;
+                        // Ξεκινάμε βαθμονόμηση ΚΑΙ στο Resume (για περίπτωση που κουνήθηκε η συσκευή)
+                        firstSample = true; lpfState = { x: 0, y: 0, z: 0 };
                         fftBufferX = []; fftBufferY = []; fftBufferZ = [];
+                        isCalibrating = true;
+                        baselineStats = { sumX: 0, sumY: 0, sumZ: 0, count: 0 };
+                        
+                        overlayTime.classList.remove('hidden');
+                        overlayTime.innerHTML = `
+                            <div class="bg-slate-800/90 backdrop-blur-md px-5 py-3 rounded-2xl shadow-xl border border-slate-600 flex flex-col items-center gap-2">
+                                <svg class="animate-spin h-6 w-6 text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <span class="text-white text-sm font-bold">Βαθμονόμηση (Αφαίρεση Βαρύτητας)</span>
+                                <span id="txtCalibPct" class="text-amber-400 font-mono font-bold">0%</span>
+                            </div>
+                        `;
                     } else { actualStartDAQ(simMode); }
                 }
             }, 1000);
@@ -1257,14 +1269,27 @@
             simTime = 0; totalFramesCount = 0; specX = []; specY = []; specZ = [];
             globalPlotData = []; cursorBin = null; fMin = 0; fMax = fmax;
             
-            firstLpfSample = true; lpfState = { x: 0, y: 0, z: 0 };
-            firstHpSample = true; 
+            firstSample = true; lpfState = { x: 0, y: 0, z: 0 };
             
             dataTableBody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-400 italic">Συλλογή δεδομένων...</td></tr>';
             errorBox.classList.add('hidden'); updatePauseUI();
             
-            overlayTime.classList.add('hidden');
-            overlayFreq.classList.remove('hidden'); overlayFreq.innerHTML = '';
+            // Ξεκινάμε τη βαθμονόμηση
+            isCalibrating = true;
+            staticBaseline = { x: 0, y: 0, z: 0 };
+            baselineStats = { sumX: 0, sumY: 0, sumZ: 0, count: 0 };
+
+            overlayTime.classList.remove('hidden');
+            overlayTime.innerHTML = `
+                <div class="bg-slate-800/90 backdrop-blur-md px-5 py-3 rounded-2xl shadow-xl border border-slate-600 flex flex-col items-center gap-2">
+                    <svg class="animate-spin h-6 w-6 text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span class="text-white text-sm font-bold">Βαθμονόμηση (Αφαίρεση Βαρύτητας)</span>
+                    <span id="txtCalibPct" class="text-amber-400 font-mono font-bold">0%</span>
+                </div>
+            `;
+            
+            overlayFreq.classList.remove('hidden'); 
+            overlayFreq.innerHTML = overlayTime.innerHTML; // Ίδιο μήνυμα και στο φάσμα
 
             requestWakeLock();
             daqIntervalId = setInterval(daqTick, dt * 1000);
